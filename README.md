@@ -47,6 +47,103 @@ listant ce qui reste à brancher.
 | `npm run build` | Build de production |
 | `npm run start` | Serveur de production |
 | `npm run lint` | ESLint |
+| `npm run db:seed` | Crée le compte super administrateur |
+
+## Base de données
+
+Le schéma est écrit à la main en SQL dans `supabase/migrations`, appliqué dans l'ordre
+des noms de fichiers.
+
+### Appliquer les migrations
+
+Au choix, sur un projet Supabase :
+
+```bash
+# Option 1 — CLI (recommandé : garde une trace des migrations appliquées)
+npx supabase link --project-ref <ref-du-projet>
+npx supabase db push
+
+# Option 2 — SQL Editor du dashboard
+# Coller le contenu de chaque fichier de supabase/migrations/ dans l'ordre.
+```
+
+### Amorcer le super administrateur
+
+Le super admin **ne peut pas s'auto-inscrire** : il n'y a pas de page d'inscription
+publique, et la policy RLS sur `profiles` réserve l'insertion aux administrateurs — donc à
+personne tant qu'il n'en existe aucun. Le script d'amorçage casse ce cercle en passant par
+la clé service role, qui contourne le RLS.
+
+```bash
+# 1. Renseigner dans .env.local :
+#      NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+#      SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD  (12 caractères minimum)
+# 2. Lancer :
+npm run db:seed
+```
+
+Le script crée le compte dans Supabase Auth (e-mail pré-confirmé), puis insère sa ligne
+`profiles` avec `role = 'super_admin'` et `garage_id = null`. Il est **idempotent** :
+relancé, il se contente de remettre le profil existant au bon rôle.
+
+Pour le faire à la main depuis le dashboard : créer l'utilisateur dans *Authentication →
+Users*, copier son UUID, puis exécuter dans le SQL Editor :
+
+```sql
+insert into profiles (id, role, garage_id, full_name, must_change_password)
+values ('<uuid-du-compte>', 'super_admin', null, 'Super administrateur', false)
+on conflict (id) do update set role = 'super_admin', garage_id = null;
+```
+
+### Vérifier l'isolation RLS
+
+`supabase/tests/rls_isolation.sql` est une **preuve exécutable** : trois garages, un
+administrateur, et une série d'assertions qui échouent bruyamment si une frontière cède.
+Le script se termine par un `ROLLBACK` et ne laisse aucune trace.
+
+```bash
+psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql
+# ou : coller dans le SQL Editor du dashboard
+```
+
+Il couvre : cloisonnement en lecture et en écriture entre garages (tables filles
+comprises), escalade de privilège, immuabilité des factures émises, numérotation
+séquentielle, passage en lecture seule sur abonnement expiré, drapeau premium sur les
+logos, et isolation du bucket de stockage.
+
+**Un test de sécurité qui ne sait pas échouer ne prouve rien.** L'en-tête du fichier liste
+des mutations à injecter (retirer une policy, un trigger) : après toute modification du
+schéma, vérifier que le test s'interrompt bien sur chacune.
+
+### Tester hors ligne, sans projet Supabase
+
+`supabase/tests/_local_supabase_stub.sql` reconstitue le strict minimum de l'environnement
+Supabase (rôles `anon` / `authenticated` / `service_role`, schéma `auth` avec `auth.uid()`,
+schéma `storage`). Il permet de rejouer migrations et test d'isolation sur un PostgreSQL
+local :
+
+```bash
+createdb facture_test
+psql -d facture_test -f supabase/tests/_local_supabase_stub.sql
+for f in supabase/migrations/*.sql; do psql -d facture_test -v ON_ERROR_STOP=1 -f "$f"; done
+psql -d facture_test -v ON_ERROR_STOP=1 -f supabase/tests/rls_isolation.sql
+```
+
+Ce fichier est un **outil de vérification**, il ne fait pas partie du schéma applicatif et
+ne doit jamais être appliqué à un projet Supabase.
+
+### Points de conception à connaître
+
+- **Le numéro de facture est attribué à la finalisation**, jamais à la création du
+  brouillon : c'est ce qui garantit une série sans trou. Un brouillon a `number = null`.
+- **`finalize_invoice()` fait tout en une transaction** : contrôle d'accès, contrôle
+  d'abonnement, recalcul des totaux depuis les lignes, attribution du numéro, gel des
+  mentions du vendeur. Les totaux envoyés par le navigateur ne sont jamais utilisés.
+- **Une facture émise est immuable** — garanti par trigger, donc quel que soit le chemin
+  d'écriture. Conséquence : **un garage ayant émis des factures ne peut pas être supprimé**
+  (conservation légale). Le désactiver (`is_active = false`) est la bonne opération.
+- **L'identité légale du garage est maintenue par l'administrateur**, pas par le garage :
+  SIRET, RCS, capital et forme juridique conditionnent la conformité des factures.
 
 ## Variables d'environnement
 
@@ -110,7 +207,7 @@ supabase/
 ## État d'avancement
 
 - [x] **Phase 0** — Bootstrap : Next.js, Tailwind, shadcn/ui, clients Supabase, socle multi-locale, Git
-- [ ] **Phase 1** — Migrations SQL, RLS, Storage, seed super admin
+- [x] **Phase 1** — Migrations SQL, RLS, Storage, seed super admin, preuve d'isolation
 - [ ] **Phase 2** — Authentification, rôles, protection des routes
 - [ ] **Phase 3** — Espace admin : CRUD garages, comptes de connexion, drapeau premium
 - [ ] **Phase 4** — Abonnements, paiements, blocage en lecture seule

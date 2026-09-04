@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:seed": "node --env-file-if-exists=.env.local scripts/seed-admin.mts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

@@ -11,11 +11,19 @@ npm run start    # serveur de production
 npm run lint     # ESLint
 ```
 
+```bash
+npm run db:seed  # crée le compte super administrateur (idempotent)
+```
+
 Base de données : migrations SQL versionnées à la main dans `supabase/migrations`, appliquées
 via la CLI Supabase (`supabase migration new <nom>`, `supabase db push`). **Pas d'ORM**, pas de
 migration générée automatiquement.
 
-Aucun framework de test n'est encore installé (prévu Phase 10).
+Preuve d'isolation RLS : `psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql`. Pour la
+rejouer sans projet Supabase, appliquer d'abord `supabase/tests/_local_supabase_stub.sql` sur un
+PostgreSQL local (il reconstitue les rôles et les schémas `auth` / `storage`) — voir README.
+
+Aucun framework de test JS n'est installé (prévu Phase 10).
 
 ## Nature du projet
 
@@ -110,6 +118,48 @@ supprimable** (annulation par avoir, prévue plus tard).
 Isoler la génération PDF de la logique métier : le calcul des totaux et la structuration des
 données (parties, lignes, taxes) doivent être réutilisables tels quels par le futur export
 Factur-X.
+
+### Garde-fous en base (à ne pas contourner depuis l'application)
+
+Trois protections vivent dans Postgres, donc valables quel que soit le chemin d'écriture :
+
+| Objet | Rôle |
+|---|---|
+| `invoices_guard_trg` | une facture émise est immuable ; seules l'annulation (`final → cancelled`) et les colonnes e-facture peuvent bouger. Une facture non `draft` n'est pas supprimable |
+| `invoice_lines_guard_trg` | les lignes d'une facture émise sont figées |
+| `profiles_guard_trg` | un non-admin ne peut changer ni son `role` ni son `garage_id` |
+
+`profiles_guard_trg` est **indispensable** : la contrainte `profiles_role_garage_ck` ne suffit
+pas. Sans le trigger, un garage se promeut administrateur avec
+`update profiles set role='super_admin', garage_id=null` — la contrainte est satisfaite et
+l'escalade passe. Vérifié par mutation.
+
+Conséquence de l'immuabilité : **un garage ayant émis des factures ne peut pas être supprimé**
+(le `on delete cascade` échoue sur le trigger). C'est voulu — conservation légale. Utiliser
+`is_active = false`.
+
+`finalize_invoice(p_invoice_id, p_decimals)` est le seul point d'entrée exposé pour émettre :
+elle refait ses propres contrôles (elle est `SECURITY DEFINER`, donc hors RLS), recalcule les
+totaux depuis `invoice_lines`, attribue le numéro et gèle `seller_snapshot`. `p_decimals` vient
+de `LocaleConfig.decimals` — la connaissance des règles pays reste dans le TypeScript.
+`next_invoice_number()` n'est appelable que par elle (`revoke` sur les rôles clients).
+
+### Discipline de test des frontières
+
+Le fichier `supabase/tests/rls_isolation.sql` est une preuve exécutable, pas une formalité.
+Après toute modification du schéma ou des policies : **injecter les mutations listées dans son
+en-tête et vérifier que le test s'interrompt sur chacune.** Un test de sécurité qui ne sait pas
+échouer donne une fausse confiance.
+
+Piège rencontré et corrigé : un `begin ... exception when raise_exception then null; end` autour
+d'une action interdite avale aussi le `raise exception 'FUITE'` censé signaler que l'action a
+réussi — le test annonçait « OK » avec le garde-fou d'immuabilité retiré. D'où le helper
+`expect_blocked(sql, label)`, qui lève l'alerte **hors** du bloc protégé avec un SQLSTATE dédié
+(`F0001`). Ne pas revenir au motif naïf.
+
+Choisir des mutations qui sont de **vraies** fuites : retirer `clients_select` ne prouve rien,
+parce que `clients_write` est `FOR ALL` et couvre déjà le SELECT. Préférer l'ouverture d'une
+frontière (`using (true)`).
 
 ### Socle multi-locale (`src/lib/locale/`)
 
