@@ -20,6 +20,25 @@ end $$;
 grant anon, authenticated, service_role to postgres;
 
 -- ---------------------------------------------------------------------------
+-- Droits par défaut du schéma public
+-- ---------------------------------------------------------------------------
+-- Sur un projet Supabase, TOUTE table créée dans `public` est automatiquement
+-- accessible aux rôles clients : seul le RLS la retient. Sans reproduire ce
+-- réglage, le stub serait moins exigeant que la production — une table dont on
+-- aurait oublié le RLS passerait le test local (faute de GRANT) et céderait
+-- une fois déployée.
+--
+-- Le reproduire rend le test fidèle : c'est le RLS, et lui seul, qui doit
+-- fermer la porte.
+grant usage on schema public to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on sequences to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant all on functions to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
 -- Schéma auth
 -- ---------------------------------------------------------------------------
 create schema if not exists auth;
@@ -32,6 +51,9 @@ create table if not exists auth.users (
   email varchar(255) unique,
   encrypted_password varchar(255),
   email_confirmed_at timestamptz,
+  -- Métadonnées libres fournies à l'inscription (options.data de signUp).
+  -- Fournies par le client : jamais une source d'autorisation.
+  raw_user_meta_data jsonb default '{}'::jsonb,
   created_at timestamptz,
   updated_at timestamptz
 );

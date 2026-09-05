@@ -39,6 +39,29 @@ npm run dev                  # http://localhost:3000
 Sans configuration Supabase, l'application démarre quand même et affiche un écran
 listant ce qui reste à brancher.
 
+### Avec une pile Supabase locale (Docker)
+
+```bash
+npx supabase start          # Postgres + Auth + Storage + Mailpit
+npx supabase db reset       # applique supabase/migrations dans l'ordre
+```
+
+La commande affiche l'URL de l'API, la clé anonyme et la clé service role : recopiez-les dans
+`.env.local`. Les e-mails de vérification n'arrivent nulle part — ils s'ouvrent dans **Mailpit**,
+dont l'URL est affichée au démarrage (« Inbucket / Mailbox »).
+
+`supabase/config.toml` est versionné et porte un réglage qui n'est pas négociable :
+
+```toml
+[auth.email]
+enable_confirmations = true
+```
+
+L'inscription en ligne EXIGE la vérification d'e-mail. Si le projet la désactive, `/signup`
+refuse d'aboutir et affiche pourquoi, plutôt que de laisser entrer un compte non vérifié.
+Sur un projet hébergé, le réglage équivalent est *Authentication → Providers → Email → Confirm
+email*.
+
 ## Scripts
 
 | Commande | Rôle |
@@ -48,6 +71,8 @@ listant ce qui reste à brancher.
 | `npm run start` | Serveur de production |
 | `npm run lint` | ESLint |
 | `npm run db:seed` | Crée le compte super administrateur |
+| `npm run verify:auth` | Rejoue le parcours d'authentification de bout en bout |
+| `npx supabase start` / `stop` | Pile Supabase locale (Docker) |
 
 ## Base de données
 
@@ -69,10 +94,12 @@ npx supabase db push
 
 ### Amorcer le super administrateur
 
-Le super admin **ne peut pas s'auto-inscrire** : il n'y a pas de page d'inscription
-publique, et la policy RLS sur `profiles` réserve l'insertion aux administrateurs — donc à
-personne tant qu'il n'en existe aucun. Le script d'amorçage casse ce cercle en passant par
-la clé service role, qui contourne le RLS.
+Le super admin **ne peut pas s'auto-inscrire**. L'inscription publique (`/signup`) ne
+fabrique que des comptes `role = 'garage'` : le rôle est posé en SQL par
+`provision_self_signup()`, jamais d'après une valeur venue du navigateur. Et la policy RLS sur
+`profiles` réserve l'insertion aux administrateurs — donc à personne tant qu'il n'en existe
+aucun. Le script d'amorçage casse ce cercle en passant par la clé service role, qui contourne le
+RLS.
 
 ```bash
 # 1. Renseigner dans .env.local :
@@ -106,14 +133,65 @@ psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql
 # ou : coller dans le SQL Editor du dashboard
 ```
 
-Il couvre : cloisonnement en lecture et en écriture entre garages (tables filles
-comprises), escalade de privilège, immuabilité des factures émises, numérotation
-séquentielle, passage en lecture seule sur abonnement expiré, drapeau premium sur les
-logos, et isolation du bucket de stockage.
+> **Windows.** Exportez `PGCLIENTENCODING=UTF8` avant d'appeler `psql`. Sans cela, les accents
+> des messages sont mal décodés et des assertions portant sur des libellés échouent à tort — un
+> faux négatif qui fait perdre du temps sur une vraie régression.
+
+Il couvre, en 17 sections : cloisonnement en lecture et en écriture entre garages (tables
+filles comprises), escalade de privilège, immuabilité des factures émises, numérotation
+séquentielle, passage en lecture seule sur abonnement expiré, drapeau premium sur les logos,
+isolation du bucket de stockage — et, depuis la phase 2 : compte à l'e-mail non vérifié privé de
+toute donnée, provisionnement d'une inscription en ligne, plafond de l'essai gratuit (3 factures
+finalisées, la 4e refusée), impossibilité de contourner le changement de mot de passe
+obligatoire, cloisonnement du journal d'administration, et fermeture des compteurs de limitation
+de débit.
 
 **Un test de sécurité qui ne sait pas échouer ne prouve rien.** L'en-tête du fichier liste
 des mutations à injecter (retirer une policy, un trigger) : après toute modification du
 schéma, vérifier que le test s'interrompt bien sur chacune.
+
+### Vérifier le parcours d'authentification
+
+Les preuves SQL — isolation RLS ci-dessus, limiteur de débit ci-dessous — portent sur les
+**frontières**. `npm run verify:auth` vérifie le **câblage** : que les Server Actions, le proxy,
+les gardes de layout et les redirections s'enchaînent comme prévu.
+
+```bash
+npx supabase start && npx supabase db reset   # pile locale + migrations
+npm run db:seed                               # super administrateur
+npm run dev                                   # dans un autre terminal
+npm run verify:auth
+```
+
+Il rejoue, contre l'application réellement lancée : la création d'un compte par
+l'administrateur, le changement de mot de passe imposé à la première connexion, l'inscription en
+ligne avec ouverture du lien reçu dans **Mailpit**, l'essai gratuit jusqu'à son plafond, la
+limitation de débit et la réinitialisation par l'administrateur — en contrôlant à chaque étape
+qu'aucun mot de passe ne se retrouve dans une notification.
+
+Le script se comporte comme un **navigateur sans JavaScript** : il soumet les formulaires en
+POST multipart, ce que Next.js sait recevoir puisqu'il rend ses Server Actions en amélioration
+progressive. Effet de bord utile : cela vérifie au passage que l'application reste utilisable
+sans JavaScript.
+
+Chaque exécution crée des comptes horodatés, elle est donc rejouable telle quelle. Pour repartir
+de zéro : `npx supabase db reset && npm run db:seed`.
+
+### Vérifier le limiteur de débit
+
+`supabase/tests/rate_limit.sql` est la seconde preuve exécutable : `rls_isolation.sql` montre que
+les compteurs sont **hors de portée** des clients, celui-ci montre qu'ils **comptent juste**.
+
+```bash
+psql "$DATABASE_URL" -f supabase/tests/rate_limit.sql
+```
+
+Il vérifie le plafond, la stabilité du blocage, la remise à zéro après une connexion réussie, la
+fenêtre glissante, l'expiration du blocage, le cloisonnement des seaux et la purge.
+
+> Piège consigné dans l'en-tête du fichier : `now()` est **figé** pour toute la durée d'une
+> transaction. Une assertion comparant deux échéances calculées dans le test est toujours vraie —
+> elle ne sait pas échouer. On vieillit donc les lignes par `UPDATE`, ou on observe le compteur.
 
 ### Tester hors ligne, sans projet Supabase
 
@@ -144,6 +222,87 @@ ne doit jamais être appliqué à un projet Supabase.
   (conservation légale). Le désactiver (`is_active = false`) est la bonne opération.
 - **L'identité légale du garage est maintenue par l'administrateur**, pas par le garage :
   SIRET, RCS, capital et forme juridique conditionnent la conformité des factures.
+
+## Authentification et comptes
+
+### Deux chemins vers un compte garage
+
+| | Créé par l'administrateur | Inscription en ligne (`/signup`) |
+|---|---|---|
+| Vérification d'e-mail | **non** — compte pré-confirmé | **oui**, obligatoire |
+| Accès | immédiat | après ouverture du lien reçu |
+| Mot de passe | fixé par l'admin, **changement forcé** à la 1re connexion | choisi par la personne |
+| Facturation | abonnement fixé par l'admin | **essai gratuit : 3 factures finalisées** |
+
+Les deux aboutissent au même modèle de données ; `garages.origin` garde la trace de la
+provenance.
+
+### Essai gratuit
+
+Un compte inscrit en ligne démarre en `account_status = 'trial'`, avec
+`trial_invoices_used = 0` et `trial_invoice_limit = 3`.
+
+**Le plafond porte sur les factures FINALISÉES, pas sur les brouillons.** Un essai épuisé
+conserve son espace en écriture : le garage continue de saisir, de tenir son carnet de clients et
+son catalogue. Seule l'émission — celle qui produit une facture légale et consomme un numéro —
+est refusée, avec le message :
+
+> Essai terminé (3 factures) — contactez l'administrateur pour activer votre abonnement
+
+Ce refus vit dans `finalize_invoice()`, en base : il tient quel que soit le chemin d'écriture.
+Le bandeau affiché dans `/app` reprend **exactement** la phrase produite par
+`finalize_block_message()`, pour qu'annonce et refus ne divergent jamais.
+
+Quand l'administrateur enregistre un abonnement (encaissement hors ligne), le trigger
+`subscriptions_end_trial_trg` fait passer le garage en `subscribed` : le contrôle redevient une
+affaire de date d'échéance. Le compteur d'essai est conservé — il documente ce qui a été consommé
+avant de payer.
+
+### Mots de passe
+
+**Aucun mot de passe n'est stocké en clair, nulle part.** Supabase Auth les hache ;
+l'application ne fait que les convoyer.
+
+- Un mot de passe **choisi par un garage** est inconnu de tout le monde, administrateur compris.
+  Le changement produit une **notification** décrivant l'événement — « le garage X a modifié son
+  mot de passe » — et jamais la valeur.
+- L'action admin **« Réinitialiser le mot de passe »** génère un mot de passe temporaire, affiché
+  **une seule fois** pour qu'il puisse être transmis. Il n'est ni journalisé, ni stocké, ni écrit
+  dans la notification. Le garage doit le remplacer à sa connexion suivante.
+- `must_change_password` ne se lève **qu'en changeant réellement de mot de passe**. Un `UPDATE`
+  direct sur le drapeau est refusé par `profiles_guard_trg` : la page de changement forcé n'est
+  pas contournable.
+
+### Limitation de débit
+
+Les compteurs vivent dans Postgres (`auth_rate_limits`), pas en mémoire : sur Vercel, les
+instances ne partagent rien. Deux dimensions par formulaire — l'adresse visée et l'IP d'origine —
+le plus strict l'emporte.
+
+| Point d'entrée | Par adresse | Par IP |
+|---|---|---|
+| Connexion | 5 échecs / 15 min | 20 / 15 min |
+| Inscription | 3 / heure | 5 / heure |
+| Changement de mot de passe | 10 / 15 min (par compte) | — |
+
+Les identifiants sont stockés **hachés** (HMAC-SHA256) et les seaux purgés au bout de 24 h : la
+table n'est pas un fichier d'adresses. Elle n'est accessible qu'à la clé service role — ouverte à
+`anon`, elle permettrait de faire bloquer l'adresse e-mail de son choix depuis l'API REST
+publique.
+
+### Gabarit d'e-mail recommandé
+
+Par défaut, le lien de confirmation Supabase transporte un `code` PKCE, qui n'aboutit que dans le
+navigateur ayant lancé l'inscription. Beaucoup de gens relèvent leur messagerie ailleurs. Pour
+que le lien fonctionne depuis n'importe où, remplacez le gabarit *Confirm signup* par :
+
+```html
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email">
+  Confirmer mon adresse
+</a>
+```
+
+`/auth/confirm` accepte **les deux formes** : rien ne casse si le gabarit reste par défaut.
 
 ## Variables d'environnement
 
@@ -193,22 +352,39 @@ prévoit les colonnes `facturx_status`, `facturx_xml_path`, `pa_reference` et
 
 ```
 src/
-  app/                 routes App Router (/admin, /app, /login à venir)
-  components/ui/       composants shadcn/ui
+  proxy.ts             rafraîchit la session, redirige selon sa présence
+  app/
+    page.tsx           accueil publique + AIGUILLAGE après connexion
+    (auth)/            login, signup, vérification, changement de mot de passe
+    auth/confirm/      retour du lien de vérification d'e-mail
+    auth/error/        impasses d'authentification, avec issue de secours
+    admin/             espace super admin — comptes, notifications
+    app/               espace garage
+  components/
+    ui/                composants shadcn/ui
+    auth/              déconnexion, message d'erreur, rattrapage
+    app-shell.tsx      coquille commune aux deux espaces
+    access-banner.tsx  état commercial d'un garage (essai, abonnement)
   lib/
     env.ts             validation zod des variables d'environnement
     format.ts          formatage montants / dates selon la locale
     locale/            configuration par pays (règles fiscales, mentions)
     supabase/          clients navigateur / serveur / admin + middleware
+    auth/              session, gardes, actions, politique de mot de passe,
+                       limitation de débit
+    admin/             lectures et actions de l'espace administrateur
 supabase/
-  migrations/          schéma SQL versionné (phase 1)
+  config.toml          configuration de la pile locale (vérification e-mail)
+  migrations/          schéma SQL versionné (phases 1 et 2)
+  tests/               preuve d'isolation RLS + stub PostgreSQL local
 ```
 
 ## État d'avancement
 
 - [x] **Phase 0** — Bootstrap : Next.js, Tailwind, shadcn/ui, clients Supabase, socle multi-locale, Git
 - [x] **Phase 1** — Migrations SQL, RLS, Storage, seed super admin, preuve d'isolation
-- [ ] **Phase 2** — Authentification, rôles, protection des routes
+- [x] **Phase 2** — Authentification, rôles, protection des routes, inscription en ligne
+      avec vérification d'e-mail, essai gratuit, limitation de débit
 - [ ] **Phase 3** — Espace admin : CRUD garages, comptes de connexion, drapeau premium
 - [ ] **Phase 4** — Abonnements, paiements, blocage en lecture seule
 - [ ] **Phase 5** — Éditeur de facture avec aperçu temps réel

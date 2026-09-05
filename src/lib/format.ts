@@ -44,3 +44,14 @@ export function formatDateShort(value: Date | string, localeCode?: LocaleCode): 
   const date = typeof value === "string" ? new Date(value) : value;
   return new Intl.DateTimeFormat(locale.intlLocale, { dateStyle: "short" }).format(date);
 }
+
+/** Date et heure : « 5 sept. 2026, 14:32 ». Utilisé pour l'horodatage des
+ *  événements (journal de l'administrateur), jamais sur une facture. */
+export function formatDateTime(value: Date | string, localeCode?: LocaleCode): string {
+  const locale = getLocale(localeCode);
+  const date = typeof value === "string" ? new Date(value) : value;
+  return new Intl.DateTimeFormat(locale.intlLocale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}

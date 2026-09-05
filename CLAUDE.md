@@ -12,16 +12,43 @@ npm run lint     # ESLint
 ```
 
 ```bash
-npm run db:seed  # crée le compte super administrateur (idempotent)
+npm run db:seed      # crée le compte super administrateur (idempotent)
+npm run verify:auth  # parcours d'authentification de bout en bout
 ```
+
+`verify:auth` pilote l'application **réellement lancée** en se comportant comme un navigateur
+sans JavaScript (les Server Actions de Next sont rendues en amélioration progressive). Il exige
+la pile Supabase locale, `npm run dev` et le seed. Il vérifie le **câblage** — actions, proxy,
+gardes de layout, redirections ; les preuves de **frontières**, elles, restent en SQL. Un RLS
+parfait derrière un formulaire mal branché ne sert à rien, et l'inverse est encore plus vrai.
 
 Base de données : migrations SQL versionnées à la main dans `supabase/migrations`, appliquées
 via la CLI Supabase (`supabase migration new <nom>`, `supabase db push`). **Pas d'ORM**, pas de
 migration générée automatiquement.
 
-Preuve d'isolation RLS : `psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql`. Pour la
+```bash
+npx supabase start   # pile Supabase locale (Docker) — config dans supabase/config.toml
+npx supabase stop    # l'arrêter
+```
+
+`supabase/config.toml` porte un réglage non négociable : `[auth.email] enable_confirmations = true`.
+L'inscription en ligne exige la vérification d'e-mail ; `signUpAction()` refuse d'aboutir si le
+projet la désactive, plutôt que de laisser entrer un compte non vérifié.
+
+Deux preuves exécutables, à rejouer après toute modification du schéma :
+
+```bash
+psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql   # frontières (17 sections)
+psql "$DATABASE_URL" -f supabase/tests/rate_limit.sql      # le limiteur compte juste
+```
+
+`rls_isolation.sql` prouve que les compteurs de débit sont hors de portée ; `rate_limit.sql`
+prouve qu'ils bloquent réellement. Un limiteur inaccessible mais qui ne bloque jamais ne protège
+de rien. Pour la
 rejouer sans projet Supabase, appliquer d'abord `supabase/tests/_local_supabase_stub.sql` sur un
 PostgreSQL local (il reconstitue les rôles et les schémas `auth` / `storage`) — voir README.
+Sous Windows, exporter `PGCLIENTENCODING=UTF8` avant `psql` : sans cela les accents des messages
+sont mal décodés et les assertions sur les libellés échouent à tort.
 
 Aucun framework de test JS n'est installé (prévu Phase 10).
 
@@ -58,9 +85,18 @@ policies déclinées sur ce modèle ; `invoice_lines` remonte au garage via un `
 | `admin.ts` | service role, **contourne le RLS** | ignoré |
 
 `admin.ts` et `server.ts` importent `server-only` : impossible de les faire fuir dans un bundle
-navigateur. Tout appel à `createAdminClient()` doit être précédé d'une vérification explicite
-que l'appelant est `super_admin`. Son seul usage prévu : créer le compte Auth d'un garage, et le
-script de seed.
+navigateur. **La liste des usages de `createAdminClient()` est close** — trois, pas un de plus :
+
+| Usage | Fichier | Pourquoi le RLS ne suffit pas |
+|---|---|---|
+| Créer / réinitialiser le compte Auth d'un garage | `lib/auth/admin-actions.ts` | l'API `auth.admin` exige la clé service role |
+| Amorcer le super admin | `scripts/seed-admin.mts` | aucun admin n'existe encore pour s'auto-autoriser |
+| Compter les tentatives de connexion | `lib/auth/rate-limit.ts` | l'appelant n'est **pas encore authentifié** |
+
+Les deux premiers sont précédés d'un `requireAdmin()` explicite. Le troisième ne peut pas
+l'être — c'est justement son objet : ouvrir `auth_rate_limit_hit()` à `anon` permettrait de
+faire bloquer l'adresse e-mail de son choix depuis l'API REST publique. Ajouter un quatrième
+usage demande de justifier pourquoi le RLS ne peut pas faire le travail.
 
 `src/proxy.ts` (convention Next.js 16, ex-`middleware.ts`) rafraîchit la session à chaque
 requête via `lib/supabase/middleware.ts`.
@@ -73,25 +109,50 @@ serveur Auth.
 |---|---|---|
 | Super admin | `/admin/*` | `role = 'super_admin'` uniquement |
 | Garage | `/app/*` | `role = 'garage'` |
-| Connexion | `/login` | public — **pas d'inscription publique** |
+| Connexion | `/login` | public |
+| Inscription | `/signup` | public — **avec vérification d'e-mail obligatoire** |
 
 Le « garage premium » n'est **pas un rôle** : c'est le booléen
 `garages.logo_management_enabled`. Il débloque la bibliothèque de logos et le sélecteur de logo
 par facture. Un garage standard subit le logo assigné par l'admin.
 
-Les comptes garages sont créés par l'admin. Le super admin est amorcé par le script de seed.
+Le super admin est amorcé par le script de seed. Un compte garage naît par **deux chemins**,
+qui aboutissent au même modèle de données (`garages.origin` les distingue) :
+
+| | Créé par l'admin (`origin = 'admin'`) | Inscription en ligne (`origin = 'self_signup'`) |
+|---|---|---|
+| Vérification d'e-mail | **non** — compte pré-confirmé (`email_confirm: true`) | **oui**, obligatoire |
+| Accès | immédiat | après ouverture du lien reçu |
+| Mot de passe | fixé par l'admin, **changement forcé** à la 1re connexion | choisi par la personne, rien à forcer |
+| Facturation | abonnement fixé par l'admin | **essai gratuit : 3 factures finalisées** |
+
+L'admin encaisse hors ligne, puis enregistre un abonnement : le trigger
+`subscriptions_end_trial_trg` fait passer le garage de `trial` à `subscribed`, et le contrôle
+redevient une affaire de date.
 
 ### Chaîne de vérification d'une action garage
 
 Chaque Server Action / Route Handler vérifie, **dans cet ordre et côté serveur** :
 
 1. session authentifiée ;
-2. rôle attendu (chargé depuis `profiles`) ;
-3. **abonnement actif** (`subscriptions.end_date >= current_date`) pour toute écriture métier ;
-4. validation zod des entrées.
+2. **adresse e-mail vérifiée** ;
+3. rôle attendu (chargé depuis `profiles`) ;
+4. **droit d'écrire** (`has_write_access()` : abonnement en cours **ou** essai) pour toute
+   écriture métier ;
+5. validation zod des entrées.
+
+`requireAdmin()` / `requireGarage()` (`lib/auth/session.ts`) enchaînent 1 à 3 et sont appelées
+dans les **layouts** `/admin` et `/app`. Le proxy (`src/proxy.ts`) ne tranche que sur la
+présence d'une session : il ne lit jamais `profiles`, et un proxy contourné n'ouvre rien.
 
 Le middleware et l'UI ne sont qu'une commodité — ils ne sont jamais la barrière de sécurité.
 Abonnement expiré ⇒ `/app` passe en **lecture seule** (bandeau + finalisation bloquée).
+
+**Essai gratuit épuisé ⇒ l'écriture reste ouverte, seule la FINALISATION est bloquée.** Le
+garage continue de saisir des brouillons ; c'est l'émission qui produit une facture légale, donc
+c'est elle qu'on plafonne. `finalize_block_reason()` donne le code, `finalize_block_message()`
+la phrase affichée — **la même** que celle levée par `finalize_invoice()`, pour qu'annonce et
+refus ne puissent pas diverger.
 
 ### Moteur de facture
 
@@ -121,18 +182,26 @@ Factur-X.
 
 ### Garde-fous en base (à ne pas contourner depuis l'application)
 
-Trois protections vivent dans Postgres, donc valables quel que soit le chemin d'écriture :
+Quatre protections vivent dans Postgres, donc valables quel que soit le chemin d'écriture :
 
 | Objet | Rôle |
 |---|---|
 | `invoices_guard_trg` | une facture émise est immuable ; seules l'annulation (`final → cancelled`) et les colonnes e-facture peuvent bouger. Une facture non `draft` n'est pas supprimable |
 | `invoice_lines_guard_trg` | les lignes d'une facture émise sont figées |
-| `profiles_guard_trg` | un non-admin ne peut changer ni son `role` ni son `garage_id` |
+| `profiles_guard_trg` | un non-admin ne peut changer ni son `role`, ni son `garage_id`, ni lever `must_change_password` |
+| `admin_notifications_guard_trg` | une notification est un journal : seul `read_at` évolue, même pour l'admin |
 
 `profiles_guard_trg` est **indispensable** : la contrainte `profiles_role_garage_ck` ne suffit
 pas. Sans le trigger, un garage se promeut administrateur avec
 `update profiles set role='super_admin', garage_id=null` — la contrainte est satisfaite et
 l'escalade passe. Vérifié par mutation.
+
+`profiles_guard()` est **SECURITY INVOKER**, contrairement aux autres fonctions de contrôle.
+C'est délibéré : elle distingue le client (`current_user = 'authenticated'`) du code de
+confiance — une fonction SECURITY DEFINER s'exécute sous le propriétaire des tables. Sans cette
+distinction, `complete_password_change()` ne pourrait pas lever `must_change_password` ; et sans
+le contrôle, le drapeau serait levable d'un simple `PATCH /profiles`, ce qui contournerait la
+page de changement forcé.
 
 Conséquence de l'immuabilité : **un garage ayant émis des factures ne peut pas être supprimé**
 (le `on delete cascade` échoue sur le trigger). C'est voulu — conservation légale. Utiliser
@@ -160,6 +229,53 @@ réussi — le test annonçait « OK » avec le garde-fou d'immuabilité retiré
 Choisir des mutations qui sont de **vraies** fuites : retirer `clients_select` ne prouve rien,
 parce que `clients_write` est `FOR ALL` et couvre déjà le SELECT. Préférer l'ouverture d'une
 frontière (`using (true)`).
+
+### Authentification (`src/lib/auth/`)
+
+| Fichier | Rôle |
+|---|---|
+| `types.ts`, `routes.ts`, `password-policy.ts` | sans dépendance serveur — importables depuis un Composant Client |
+| `session.ts` | `getAuthContext()` + les gardes `requireAdmin()` / `requireGarage()` |
+| `actions.ts` | connexion, inscription, changement de mot de passe, déconnexion |
+| `admin-actions.ts` | création de compte garage, réinitialisation de mot de passe |
+| `rate-limit.ts` | plafonds de tentatives, adossés à `auth_rate_limits` |
+
+`getAuthContext()` fait **un seul** aller-retour : `my_access_state()` renvoie en un jsonb le
+rôle, le garage, l'essai, l'abonnement et le motif de blocage. Aucune de ces règles n'est
+recalculée en TypeScript — les dupliquer, c'est les laisser diverger.
+
+**Où atterrit-on après connexion ?** Toujours sur `/`, qui aiguille : adresse vérifiée → profil
+rattaché → mot de passe changé → espace du rôle. Une seule règle, au même endroit. Le paramètre
+`next` passe par `safeNextPath()` (refus de `//hôte` et `/\hôte`) puis doit rester dans l'espace
+du rôle.
+
+### Mots de passe : ce qui est visible, et par qui
+
+Règle qui prime sur toute considération d'ergonomie : **aucun mot de passe n'est stocké, ni
+journalisé, ni transmis à l'administrateur.** Supabase Auth le hache, l'application ne fait que
+le convoyer.
+
+- Mot de passe **choisi par un garage** : inconnu de tous, admin compris. Le changement produit
+  une **notification** décrivant l'événement (`notify_password_changed()`), jamais la valeur.
+- Mot de passe **temporaire** généré par l'admin (`resetGaragePasswordAction`) : affiché **une
+  fois** dans la boîte de dialogue, parce qu'il faut bien le transmettre. Ni en base, ni dans les
+  journaux, ni dans la notification. Le garage doit le remplacer à la connexion suivante.
+- `must_change_password` ne se lève qu'en changeant réellement de mot de passe, via
+  `complete_password_change()`. Un `UPDATE` direct dessus est refusé par `profiles_guard_trg`.
+
+Le test `rls_isolation.sql` (section 16) vérifie qu'aucune notification ne ressemble à un mot de
+passe transmis.
+
+### Limitation de débit (`auth_rate_limits`)
+
+Compteurs en base, pas en mémoire : sur Vercel les instances ne partagent rien, un compteur local
+ne protège de rien. Deux dimensions par formulaire — l'adresse visée et l'IP d'origine — le plus
+strict l'emporte. Les identifiants sont stockés **hachés** (HMAC-SHA256), les seaux purgés à 24 h.
+
+Table et fonctions fermées à `anon` et `authenticated` : ouvertes, elles permettraient de faire
+bloquer l'adresse e-mail de son choix depuis l'API REST publique. Seule la clé service role y
+accède. Un compteur injoignable **laisse passer** plutôt que de fermer la connexion à tout le
+monde : un limiteur en panne ne doit pas devenir une panne d'authentification.
 
 ### Socle multi-locale (`src/lib/locale/`)
 

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:seed": "node --env-file-if-exists=.env.local scripts/seed-admin.mts"
+    "db:seed": "node --env-file-if-exists=.env.local scripts/seed-admin.mts",
+    "verify:auth": "node --env-file-if-exists=.env.local scripts/verify-auth-flow.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

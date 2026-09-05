@@ -12,8 +12,12 @@ import { requireSupabaseEnv } from "@/lib/env";
  * (service role) est réservé aux opérations d'administration.
  */
 export async function createClient() {
-  const { url, anonKey } = requireSupabaseEnv();
+  // `cookies()` en PREMIER, avant toute validation susceptible de lever :
+  // c'est cet appel qui marque la route comme dynamique. Valider
+  // l'environnement d'abord ferait échouer le prérendu au build au lieu de
+  // simplement rendre la page dynamique.
   const cookieStore = await cookies();
+  const { url, anonKey } = requireSupabaseEnv();
 
   return createServerClient(url, anonKey, {
     cookies: {
