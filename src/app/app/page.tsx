@@ -1,8 +1,15 @@
 import type { Metadata } from "next";
-import { CircleDashed, FileText } from "lucide-react";
+import { CircleDashed, FileText, Users, Wrench } from "lucide-react";
 
 import { AccessBanner } from "@/components/access-banner";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { getLocale } from "@/lib/locale";
 import { requireGarage } from "@/lib/auth/session";
 
@@ -10,48 +17,65 @@ export const metadata: Metadata = {
   title: "Mon espace — Facturation multi-garages",
 };
 
+/** Ce qui arrive, dans l'ordre des phases. Annoncé plutôt que promis. */
+const A_VENIR = [
+  {
+    icon: FileText,
+    titre: "Éditeur de facture",
+    detail: "Saisie des lignes, calcul HT / TVA / TTC en temps réel, brouillons illimités.",
+  },
+  {
+    icon: Users,
+    titre: "Carnet de clients",
+    detail: "Les coordonnées saisies une fois, reprises sur chaque facture.",
+  },
+  {
+    icon: Wrench,
+    titre: "Catalogue de prestations",
+    detail: "Vos interventions courantes et leurs tarifs, prêtes à insérer.",
+  },
+];
+
 export default async function GarageHomePage() {
   const { garage, access, fullName } = await requireGarage();
   const locale = getLocale();
 
   return (
     <div className="space-y-8">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Bonjour{fullName ? ` ${fullName}` : ""}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Espace de facturation de {garage.name} — {locale.label}, {locale.currency}.
-        </p>
-      </div>
+      <PageHeader
+        title={`Bonjour${fullName ? ` ${fullName}` : ""}`}
+        description={`Espace de facturation de ${garage.name} — ${locale.label}, ${locale.currency}.`}
+      />
 
       <AccessBanner garage={garage} access={access} />
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FileText className="size-4" aria-hidden />
-            Facturation
-          </CardTitle>
+          <CardTitle className="text-base">Votre facturation</CardTitle>
           <CardDescription>
-            L&apos;éditeur de facture, le carnet de clients et le catalogue de
-            prestations arrivent aux phases suivantes.
+            Voici ce qui arrive dans votre espace, dans l&apos;ordre où nous le
+            construisons.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ul className="space-y-2 text-sm text-muted-foreground">
-            {[
-              "Éditeur de facture avec aperçu temps réel",
-              "Numérotation séquentielle et finalisation",
-              "Carnet de clients et catalogue de prestations",
-              "Export PDF conforme",
-            ].map((item) => (
-              <li key={item} className="flex items-center gap-2">
-                <CircleDashed className="size-3.5 shrink-0" aria-hidden />
-                {item}
+          <ul className="divide-y">
+            {A_VENIR.map(({ icon: Icone, titre, detail }) => (
+              <li key={titre} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                  <Icone className="size-4" aria-hidden />
+                </span>
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{titre}</p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{detail}</p>
+                </div>
               </li>
             ))}
           </ul>
+
+          <p className="mt-5 flex items-center gap-2 border-t pt-4 text-sm text-muted-foreground">
+            <CircleDashed className="size-3.5 shrink-0" aria-hidden />
+            Export PDF conforme et bibliothèque de logos suivront.
+          </p>
         </CardContent>
       </Card>
     </div>

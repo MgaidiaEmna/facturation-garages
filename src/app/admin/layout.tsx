@@ -16,6 +16,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
     <AppShell
       spaceLabel="Administration"
       accountLabel={context.email ?? "Super administrateur"}
+      homeHref="/admin"
       nav={[
         { href: "/admin", label: "Tableau de bord" },
         { href: "/admin/garages", label: "Garages" },

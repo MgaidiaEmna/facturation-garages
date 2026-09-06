@@ -5,6 +5,7 @@ import { Bell, Building2, Clock, TriangleAlert, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
 import {
   countUnreadNotifications,
   listGarageAccounts,
@@ -30,20 +31,18 @@ export default async function AdminHomePage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Tableau de bord</h1>
-          <p className="text-sm text-muted-foreground">
-            Vue d&apos;ensemble des comptes garages et des événements à traiter.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/admin/comptes/nouveau">
-            <UserPlus aria-hidden />
-            Créer un compte
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="Tableau de bord"
+        description="Vue d'ensemble des comptes garages et des événements à traiter."
+        action={
+          <Button asChild>
+            <Link href="/admin/comptes/nouveau">
+              <UserPlus aria-hidden />
+              Créer un compte
+            </Link>
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -85,7 +84,7 @@ export default async function AdminHomePage() {
             {trials.map((account) => (
               <div
                 key={account.userId}
-                className="flex items-center justify-between gap-4 rounded-md border px-3 py-2 text-sm"
+                className="flex items-center justify-between gap-4 rounded-lg border px-3 py-2 text-sm"
               >
                 <span className="font-medium">{account.garage?.name}</span>
                 <Badge variant="secondary">
@@ -108,7 +107,7 @@ export default async function AdminHomePage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {pendingPasswordChange.map((account) => (
-              <div key={account.userId} className="rounded-md border px-3 py-2 text-sm">
+              <div key={account.userId} className="rounded-lg border px-3 py-2 text-sm">
                 {account.garage?.name ?? account.fullName ?? account.userId}
               </div>
             ))}
@@ -133,9 +132,9 @@ function StatCard({
   return (
     <Link
       href={href}
-      className="rounded-lg border p-4 transition-colors hover:bg-muted/50"
+      className="group rounded-xl border bg-card p-4 shadow-sm transition-colors hover:border-primary/30 hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     >
-      <span className="flex items-center gap-2 text-sm text-muted-foreground">
+      <span className="flex items-center gap-2 text-sm text-muted-foreground transition-colors group-hover:text-accent-foreground">
         {icon}
         {label}
       </span>

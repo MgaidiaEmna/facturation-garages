@@ -13,6 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { AccessBadge, InactiveBadge } from "@/components/admin/garage-badges";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { listGarageAccounts } from "@/lib/admin/queries";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 
@@ -25,37 +27,35 @@ export default async function AccountsPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Comptes garages</h1>
-          <p className="text-sm text-muted-foreground">
-            Comptes créés par vous et inscriptions en ligne vérifiées.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/admin/comptes/nouveau">
-            <UserPlus aria-hidden />
-            Créer un compte
-          </Link>
-        </Button>
-      </div>
-
-      {accounts.length === 0 ? (
-        <div className="rounded-lg border border-dashed px-6 py-16 text-center">
-          <p className="text-sm font-medium">Aucun compte garage pour l&apos;instant</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Créez-en un vous-même, ou attendez qu&apos;un garage s&apos;inscrive en
-            ligne — il démarrera alors en essai gratuit.
-          </p>
-          <Button asChild className="mt-6">
+      <PageHeader
+        title="Comptes garages"
+        description="Comptes créés par vous et inscriptions en ligne vérifiées."
+        action={
+          <Button asChild>
             <Link href="/admin/comptes/nouveau">
               <UserPlus aria-hidden />
               Créer un compte
             </Link>
           </Button>
-        </div>
+        }
+      />
+
+      {accounts.length === 0 ? (
+        <EmptyState
+          icon={<UserPlus className="size-5" aria-hidden />}
+          title="Aucun compte garage pour l'instant"
+          description="Créez-en un vous-même, ou attendez qu'un garage s'inscrive en ligne — il démarrera alors en essai gratuit."
+          action={
+            <Button asChild>
+              <Link href="/admin/comptes/nouveau">
+                <UserPlus aria-hidden />
+                Créer un compte
+              </Link>
+            </Button>
+          }
+        />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
           <Table>
             <TableHeader>
               <TableRow>

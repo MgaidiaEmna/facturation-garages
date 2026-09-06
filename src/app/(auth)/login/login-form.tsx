@@ -57,7 +57,7 @@ export function LoginForm({ next }: { next?: string }) {
 
       <p className="text-center text-sm text-muted-foreground">
         Pas encore de compte ?{" "}
-        <Link href="/signup" className="font-medium text-foreground underline underline-offset-4">
+        <Link href="/signup" className="font-medium text-primary underline underline-offset-4 hover:text-brand-dark">
           Essayer gratuitement
         </Link>
       </p>

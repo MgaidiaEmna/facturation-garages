@@ -20,6 +20,8 @@ import {
   InactiveBadge,
   PremiumBadge,
 } from "@/components/admin/garage-badges";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { listGarages, type GarageListItem } from "@/lib/admin/queries";
 
 export const metadata: Metadata = {
@@ -73,20 +75,18 @@ export default async function GaragesPage(props: PageProps<"/admin/garages">) {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Garages</h1>
-          <p className="text-sm text-muted-foreground">
-            Identité légale, conditions de règlement et droits de chaque garage.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/admin/comptes/nouveau">
-            <UserPlus aria-hidden />
-            Créer un compte
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="Garages"
+        description="Identité légale, conditions de règlement et droits de chaque garage."
+        action={
+          <Button asChild>
+            <Link href="/admin/comptes/nouveau">
+              <UserPlus aria-hidden />
+              Créer un compte
+            </Link>
+          </Button>
+        }
+      />
 
       {deleted ? (
         <Alert>
@@ -99,7 +99,7 @@ export default async function GaragesPage(props: PageProps<"/admin/garages">) {
       ) : null}
 
       {garages.length === 0 ? (
-        <EmptyState />
+        <NoGarages />
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-3">
@@ -151,7 +151,7 @@ export default async function GaragesPage(props: PageProps<"/admin/garages">) {
           {visible.length === 0 ? (
             <NoResults query={query} />
           ) : (
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -230,38 +230,41 @@ export default async function GaragesPage(props: PageProps<"/admin/garages">) {
 }
 
 /** Aucun garage en base : l'administration vient d'être installée. */
-function EmptyState() {
+function NoGarages() {
   return (
-    <div className="rounded-lg border border-dashed px-6 py-16 text-center">
-      <Building2 aria-hidden className="mx-auto size-8 text-muted-foreground" />
-      <p className="mt-4 text-sm font-medium">Aucun garage pour l&apos;instant</p>
-      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-        Créez un compte vous-même, ou attendez qu&apos;un garage s&apos;inscrive en
-        ligne — il démarrera alors en essai gratuit, et sa fiche apparaîtra ici.
-      </p>
-      <Button asChild className="mt-6">
-        <Link href="/admin/comptes/nouveau">
-          <UserPlus aria-hidden />
-          Créer un compte
-        </Link>
-      </Button>
-    </div>
+    <EmptyState
+      icon={<Building2 className="size-5" aria-hidden />}
+      title="Aucun garage pour l'instant"
+      description="Créez un compte vous-même, ou attendez qu'un garage s'inscrive en ligne — il démarrera alors en essai gratuit, et sa fiche apparaîtra ici."
+      action={
+        <Button asChild>
+          <Link href="/admin/comptes/nouveau">
+            <UserPlus aria-hidden />
+            Créer un compte
+          </Link>
+        </Button>
+      }
+    />
   );
 }
 
 /** Le filtre ne renvoie rien : on distingue « rien à voir » de « rien trouvé ». */
 function NoResults({ query }: { query: string }) {
   return (
-    <div className="rounded-lg border border-dashed px-6 py-12 text-center">
-      <p className="text-sm font-medium">Aucun garage ne correspond</p>
-      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-        {query
+    <EmptyState
+      variant="compact"
+      icon={<Search className="size-5" aria-hidden />}
+      title="Aucun garage ne correspond"
+      description={
+        query
           ? `Aucun résultat pour « ${query} ». Essayez un autre terme, ou retirez le filtre.`
-          : "Aucun garage dans cet état."}
-      </p>
-      <Button asChild variant="outline" className="mt-6">
-        <Link href="/admin/garages">Voir tous les garages</Link>
-      </Button>
-    </div>
+          : "Aucun garage dans cet état."
+      }
+      action={
+        <Button asChild variant="outline">
+          <Link href="/admin/garages">Voir tous les garages</Link>
+        </Button>
+      }
+    />
   );
 }

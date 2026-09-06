@@ -35,6 +35,9 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-brand: var(--brand);
+  --color-brand-dark: var(--brand-dark);
+  --color-brand-foreground: var(--brand-foreground);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -48,73 +51,129 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ===========================================================================
+   IDENTITÉ VISUELLE — bleu marine + gris zinc
+   ---------------------------------------------------------------------------
+   Une seule source pour la couleur de marque : `--brand`. `--primary` la
+   référence, et tout ce que shadcn dérive de `--primary` (boutons, badges,
+   anneaux de focus, interrupteurs, liens) suit sans qu'aucune page n'ait à
+   nommer une couleur. Repeindre l'application = changer ces deux lignes.
+
+   Repères de la charte, repris de la facture d'origine :
+     --brand       #1f3a5c   oklch(0.345 0.069 255.1)
+     --brand-dark  #142943   oklch(0.278 0.056 254.8)
+
+   Contrastes vérifiés (WCAG 2.1, texte blanc) :
+     blanc sur #1f3a5c ....... 11,6:1   (AAA, seuil AA = 4,5:1)
+     blanc sur #142943 ....... 14,7:1   (AAA)
+     #1f3a5c sur blanc ....... 11,6:1   (AAA) — liens et texte accentué
+   Les libellés atténués de l'en-tête sont posés à `text-white/75`, soit
+   environ 7:1 sur le bandeau marine : au-dessus du seuil AA pour tout corps
+   de texte.
+   =========================================================================== */
+
 :root {
+  /* --- Marque --- */
+  --brand: oklch(0.345 0.069 255.1);
+  --brand-dark: oklch(0.278 0.056 254.8);
+  --brand-foreground: oklch(0.985 0 0);
+
+  /* --- Surfaces et texte : gris zinc, neutres et froids --- */
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+
+  /* --- Dérivés de la marque --- */
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+
+  /* Survols et éléments actifs : un voile marine, pas un gris de plus. */
+  --accent: oklch(0.955 0.012 255);
+  --accent-foreground: var(--brand-dark);
+
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+
+  /* L'anneau de focus porte la marque : visible sans être criard. */
+  --ring: oklch(0.545 0.089 255);
+
+  /* Échelle marine pour les graphiques (phases ultérieures). */
+  --chart-1: oklch(0.345 0.069 255.1);
+  --chart-2: oklch(0.455 0.078 254);
+  --chart-3: oklch(0.565 0.082 252);
+  --chart-4: oklch(0.675 0.072 250);
+  --chart-5: oklch(0.785 0.052 248);
+
   --radius: 0.625rem;
+
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-accent: oklch(0.955 0.012 255);
+  --sidebar-accent-foreground: var(--brand-dark);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.545 0.089 255);
 }
 
+/* ---------------------------------------------------------------------------
+   Thème sombre
+   ---------------------------------------------------------------------------
+   Aucun sélecteur de thème n'est branché à ce stade : ce bloc existe pour que
+   l'identité reste cohérente le jour où il le sera. Le marine y devient plus
+   clair — à luminosité égale, il deviendrait illisible sur fond sombre.
+   --------------------------------------------------------------------------- */
 .dark {
-  --background: oklch(0.145 0 0);
+  --brand: oklch(0.72 0.088 253);
+  --brand-dark: oklch(0.26 0.035 255);
+  --brand-foreground: oklch(0.19 0.028 255);
+
+  --background: oklch(0.175 0.017 255);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.225 0.021 255);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.225 0.021 255);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+
+  --secondary: oklch(0.279 0.021 255);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --muted: oklch(0.279 0.021 255);
+  --muted-foreground: oklch(0.72 0.014 286);
+
+  --accent: oklch(0.305 0.028 255);
   --accent-foreground: oklch(0.985 0 0);
+
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.62 0.082 254);
+
+  --chart-1: oklch(0.78 0.072 250);
+  --chart-2: oklch(0.68 0.082 252);
+  --chart-3: oklch(0.58 0.086 254);
+  --chart-4: oklch(0.48 0.078 255);
+  --chart-5: oklch(0.38 0.066 256);
+
+  --sidebar: oklch(0.225 0.021 255);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-foreground);
+  --sidebar-accent: oklch(0.305 0.028 255);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.62 0.082 254);
 }
 
 @layer base {
@@ -123,8 +182,21 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Chiffres de même largeur : dans une facture, une colonne de montants
+       qui danse à chaque rendu est illisible. */
+    font-variant-numeric: tabular-nums;
   }
   html {
     @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Titres : un cran plus serrés que le corps, comme sur un document imprimé. */
+  h1, h2, h3 {
+    @apply tracking-tight;
+  }
+  /* Le texte courant garde des chiffres proportionnels : `tabular-nums` est
+     fait pour les colonnes, pas pour une phrase. */
+  p, li, label {
+    font-variant-numeric: normal;
   }
 }

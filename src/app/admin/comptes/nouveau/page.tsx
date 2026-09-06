@@ -3,6 +3,7 @@ import { ShieldCheck } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
 import { CreateAccountForm } from "./create-account-form";
 
 export const metadata: Metadata = {
@@ -19,13 +20,10 @@ function defaultSubscriptionEnd(): string {
 export default function NewAccountPage() {
   return (
     <div className="mx-auto max-w-xl space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Nouveau compte garage</h1>
-        <p className="text-sm text-muted-foreground">
-          Création directe, sans vérification d&apos;e-mail : le compte est actif
-          immédiatement.
-        </p>
-      </div>
+      <PageHeader
+        title="Nouveau compte garage"
+        description="Création directe, sans vérification d'e-mail : le compte est actif immédiatement."
+      />
 
       <Alert>
         <ShieldCheck aria-hidden />

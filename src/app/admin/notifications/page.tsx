@@ -3,6 +3,8 @@ import { BellOff, CheckCheck, Gift, KeyRound, ShieldAlert, UserPlus } from "luci
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { formatDateTime } from "@/lib/format";
 import { markNotificationsReadAction } from "@/lib/admin/actions";
 import {
@@ -28,37 +30,29 @@ export default async function NotificationsPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Notifications</h1>
-          <p className="max-w-xl text-sm text-muted-foreground">
-            Journal des événements de compte. Il décrit ce qui s&apos;est passé et
-            ne contient aucun mot de passe — ceux que choisissent les garages ne
-            sont connus de personne d&apos;autre qu&apos;eux.
-          </p>
-        </div>
-
-        {unread > 0 ? (
-          <form action={markNotificationsReadAction}>
-            <Button type="submit" variant="outline">
-              <CheckCheck aria-hidden />
-              Tout marquer comme lu ({unread})
-            </Button>
-          </form>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Notifications"
+        description="Journal des événements de compte. Il décrit ce qui s'est passé et ne contient aucun mot de passe — ceux que choisissent les garages ne sont connus de personne d'autre qu'eux."
+        action={
+          unread > 0 ? (
+            <form action={markNotificationsReadAction}>
+              <Button type="submit" variant="outline">
+                <CheckCheck aria-hidden />
+                Tout marquer comme lu ({unread})
+              </Button>
+            </form>
+          ) : null
+        }
+      />
 
       {notifications.length === 0 ? (
-        <div className="rounded-lg border border-dashed px-6 py-16 text-center">
-          <BellOff className="mx-auto size-5 text-muted-foreground" aria-hidden />
-          <p className="mt-3 text-sm font-medium">Aucun événement pour l&apos;instant</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Les inscriptions, changements de mot de passe et fins d&apos;essai
-            apparaîtront ici.
-          </p>
-        </div>
+        <EmptyState
+          icon={<BellOff className="size-5" aria-hidden />}
+          title="Aucun événement pour l'instant"
+          description="Les inscriptions, changements de mot de passe et fins d'essai apparaîtront ici."
+        />
       ) : (
-        <ul className="divide-y rounded-lg border">
+        <ul className="divide-y rounded-xl border bg-card shadow-sm">
           {notifications.map((notification) => (
             <NotificationRow key={notification.id} notification={notification} />
           ))}
@@ -71,7 +65,9 @@ export default async function NotificationsPage() {
 function NotificationRow({ notification }: { notification: AdminNotification }) {
   return (
     <li className="flex items-start gap-3 px-4 py-3">
-      <span className="mt-0.5 text-muted-foreground">{ICONS[notification.type]}</span>
+      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+        {ICONS[notification.type]}
+      </span>
 
       <div className="min-w-0 flex-1 space-y-1">
         <p className="text-sm">{notification.message}</p>

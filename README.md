@@ -134,6 +134,12 @@ psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql
 # ou : coller dans le SQL Editor du dashboard
 ```
 
+> **Base vierge exigée.** Le test compte les lignes en valeur absolue (« l'admin voit
+> exactement 4 garages »). Lancé sur une base déjà seedée ou peuplée par les scripts
+> `verify:*`, il s'arrête sur un décompte faux — ce n'est pas une régression, c'est son
+> jeu d'essai qui n'est plus seul. Le rejouer sur un cluster jetable (section suivante),
+> ou juste après `npx supabase db reset` **avant** `npm run db:seed`.
+
 > **Windows.** Exportez `PGCLIENTENCODING=UTF8` avant d'appeler `psql`. Sans cela, les accents
 > des messages sont mal décodés et des assertions portant sur des libellés échouent à tort — un
 > faux négatif qui fait perdre du temps sur une vraie régression.

@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { AuthFormMessage } from "@/components/auth/auth-form-message";
+import { SectionHeader } from "@/components/page-header";
 import { updateGarageAction, type GarageFormState } from "@/lib/admin/actions";
 import type { GarageRecord } from "@/lib/admin/queries";
 import { getLocale } from "@/lib/locale";
@@ -56,14 +57,16 @@ export function GarageForm({ garage }: { garage: GarageRecord }) {
 
       {/* --- Identité légale du vendeur --- */}
       <section className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-base font-semibold">Identité du vendeur</h2>
-          <p className="text-sm text-muted-foreground">
-            Ces mentions figurent sur chaque facture émise par le garage.
-            L&apos;astérisque marque celles qu&apos;exige la réglementation{" "}
-            {locale.label} — la fiche s&apos;enregistre même incomplète.
-          </p>
-        </div>
+        <SectionHeader
+          title="Identité du vendeur"
+          description={
+            <>
+              Ces mentions figurent sur chaque facture émise par le garage.
+              L&apos;astérisque marque celles qu&apos;exige la réglementation{" "}
+              {locale.label} — la fiche s&apos;enregistre même incomplète.
+            </>
+          }
+        />
 
         <FieldGroup>
           {locale.sellerIdentityFields.map((field) => {
@@ -109,14 +112,11 @@ export function GarageForm({ garage }: { garage: GarageRecord }) {
       </section>
 
       {/* --- Contact et coordonnées bancaires --- */}
-      <section className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-base font-semibold">Contact et règlement</h2>
-          <p className="text-sm text-muted-foreground">
-            L&apos;adresse e-mail de contact est reprise sur les factures. Elle est
-            indépendante de l&apos;adresse de connexion du compte.
-          </p>
-        </div>
+      <section className="space-y-4 border-t pt-8">
+        <SectionHeader
+          title="Contact et coordonnées bancaires"
+          description="L'adresse e-mail de contact est reprise sur les factures. Elle est indépendante de l'adresse de connexion du compte."
+        />
 
         <FieldGroup>
           <Field data-invalid={Boolean(state.fieldErrors?.phone)}>
@@ -149,13 +149,11 @@ export function GarageForm({ garage }: { garage: GarageRecord }) {
       </section>
 
       {/* --- Réglages de facturation --- */}
-      <section className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-base font-semibold">Réglages de facturation</h2>
-          <p className="text-sm text-muted-foreground">
-            Repris par défaut sur chaque nouvelle facture du garage.
-          </p>
-        </div>
+      <section className="space-y-4 border-t pt-8">
+        <SectionHeader
+          title="Réglages de facturation"
+          description="Repris par défaut sur chaque nouvelle facture du garage."
+        />
 
         <FieldGroup>
           <Field orientation="horizontal">

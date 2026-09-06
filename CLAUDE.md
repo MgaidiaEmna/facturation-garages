@@ -365,14 +365,51 @@ Réception obligatoire au **1er sept. 2026**, émission TPE/PME au **1er sept. 2
 
 ## UI
 
-Design sobre et professionnel, palette neutre, responsive (utilisable sur tablette). shadcn/ui
-en base « radix », préréglage Nova ; les composants vivent dans `src/components/ui/`.
+Design sobre et professionnel, responsive (utilisable sur tablette). shadcn/ui en base
+« radix », préréglage Nova ; les composants vivent dans `src/components/ui/`.
 
-Note : cette version de shadcn ne fournit plus `form.tsx` — utiliser `field.tsx` avec
-react-hook-form.
+### Identité visuelle : bleu marine + gris zinc
+
+La couleur de marque a **une seule source**, dans `src/app/globals.css` :
+
+| Jeton | Valeur | Rôle |
+|---|---|---|
+| `--brand` | `#1f3a5c` — `oklch(0.345 0.069 255.1)` | accent principal, reprend la facture d'origine |
+| `--brand-dark` | `#142943` — `oklch(0.278 0.056 254.8)` | survols et texte accentué |
+| `--primary` | `var(--brand)` | tout ce que shadcn en dérive suit |
+
+**Ne jamais écrire une couleur en dur dans une page.** `--primary` référence `--brand`, et
+boutons, badges, anneaux de focus, interrupteurs et liens en découlent : repeindre
+l'application, c'est changer ces deux lignes. Les neutres sont des gris **zinc** (froids),
+assortis au marine. Les utilitaires `bg-brand` / `text-brand-dark` existent pour le bandeau
+d'en-tête, qui n'est pas une surface shadcn.
+
+Contrastes vérifiés : blanc sur `#1f3a5c` = 11,6:1, blanc sur `#142943` = 14,7:1,
+`#1f3a5c` sur blanc = 11,6:1 — AAA dans les trois cas. Les libellés atténués du bandeau sont
+à `text-white/75` (≈ 7:1), au-dessus du seuil AA.
+
+### Composants transverses
+
+| Composant | Rôle |
+|---|---|
+| `components/brand.tsx` | icône + nom « Facturation ». Le logo ne se recopie pas ailleurs |
+| `components/app-shell.tsx` | bandeau marine, navigation, pied de page réglementaire |
+| `components/main-nav.tsx` | onglets ; l'onglet actif est déduit du chemin (`usePathname`) |
+| `components/page-header.tsx` | `PageHeader` (titre + action) et `SectionHeader` |
+| `components/empty-state.tsx` | états vides — dire ce qui manque, pourquoi, et la sortie |
+| `components/admin/garage-badges.tsx` | pastilles d'état d'un garage |
+
+Une page ne redéfinit ni sa typographie de titre, ni son état vide : elle emploie ces
+composants. C'est ce qui évite qu'un écran ait l'air d'avoir été fait par quelqu'un d'autre.
+
+L'icône de l'application est `public/icone.png` ; `src/app/icon.png` en est la copie servie
+comme favicon (convention de fichier Next).
 
 Soigner les états vides, les messages d'erreur, les confirmations avant action destructrice.
 Toasts via `sonner` (`<Toaster />` est monté dans le layout racine).
+
+Note : cette version de shadcn ne fournit plus `form.tsx` — utiliser `field.tsx` avec
+react-hook-form.
 
 ## Environnement
 

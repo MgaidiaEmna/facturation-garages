@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CheckCircle2, CircleDashed, LogIn, UserPlus } from "lucide-react";
 
+import { BrandMark } from "@/components/brand";
+
 import { isSupabaseConfigured, publicEnv } from "@/lib/env";
 import { getLocale } from "@/lib/locale";
 import { ROUTES, homeForRole, safeNextPath } from "@/lib/auth/routes";
@@ -66,14 +68,22 @@ function LandingScreen({ configured }: { configured: boolean }) {
   ];
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-8 px-6 py-16">
+    <div className="relative flex min-h-full flex-1 flex-col bg-muted/40">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-gradient-to-b from-brand/10 to-transparent"
+      />
+
+      <main className="relative mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-8 px-6 py-16">
+      <BrandMark size="lg" tone="dark" />
+
       <div className="space-y-3">
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Facturation multi-garages
+        <h1 className="text-4xl font-semibold tracking-tight text-balance">
+          Des factures conformes, sans y passer la journée
         </h1>
-        <p className="text-muted-foreground">
-          Créez une facture conforme en deux minutes : client, prestations, calcul
-          HT / TVA / TTC en temps réel et export PDF.
+        <p className="text-base leading-relaxed text-muted-foreground text-pretty">
+          Client, prestations, calcul HT / TVA / TTC en temps réel et export PDF.
+          Pensé pour les garages, conforme aux mentions obligatoires françaises.
         </p>
       </div>
 
@@ -99,11 +109,11 @@ function LandingScreen({ configured }: { configured: boolean }) {
             <code className="text-foreground">.env.local</code> pour brancher la base
             de données.
           </p>
-          <ul className="divide-y rounded-lg border">
+          <ul className="divide-y rounded-xl border bg-card shadow-sm">
             {checklist.map((item) => (
               <li key={item.label} className="flex items-center gap-3 px-4 py-3 text-sm">
                 {item.done ? (
-                  <CheckCircle2 className="size-4 shrink-0 text-foreground" aria-hidden />
+                  <CheckCircle2 className="size-4 shrink-0 text-primary" aria-hidden />
                 ) : (
                   <CircleDashed className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 )}
@@ -114,9 +124,10 @@ function LandingScreen({ configured }: { configured: boolean }) {
         </>
       )}
 
-      <p className="text-xs leading-relaxed text-muted-foreground">
+      <p className="border-t pt-6 text-xs leading-relaxed text-muted-foreground">
         {locale.legalMentions.disclaimer}
       </p>
-    </main>
+      </main>
+    </div>
   );
 }
