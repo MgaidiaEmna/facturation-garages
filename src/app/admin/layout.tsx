@@ -18,6 +18,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       accountLabel={context.email ?? "Super administrateur"}
       nav={[
         { href: "/admin", label: "Tableau de bord" },
+        { href: "/admin/garages", label: "Garages" },
         { href: "/admin/comptes", label: "Comptes" },
         { href: "/admin/notifications", label: "Notifications" },
       ]}

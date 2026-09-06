@@ -51,6 +51,9 @@ create table if not exists auth.users (
   email varchar(255) unique,
   encrypted_password varchar(255),
   email_confirmed_at timestamptz,
+  -- Renseignée par GoTrue à chaque connexion réussie. Lue par
+  -- `garage_accounts()` pour dater la dernière connexion d'un garage.
+  last_sign_in_at timestamptz,
   -- Métadonnées libres fournies à l'inscription (options.data de signUp).
   -- Fournies par le client : jamais une source d'autorisation.
   raw_user_meta_data jsonb default '{}'::jsonb,

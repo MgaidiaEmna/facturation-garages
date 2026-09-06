@@ -43,6 +43,8 @@
  * nettoyage. Pour repartir de zéro : `npx supabase db reset`.
  */
 
+import { Navigateur, decode } from "./lib/navigateur.mjs";
+
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const API = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -83,134 +85,6 @@ function check(label, ok, detail = "") {
 function section(titre) {
   console.log(`\n=== ${titre} ===\n`);
 }
-
-// ---------------------------------------------------------------------------
-// Un navigateur minimal : cookies + formulaires Server Action
-// ---------------------------------------------------------------------------
-class Navigateur {
-  constructor() {
-    this.cookies = new Map();
-  }
-
-  #entete() {
-    return [...this.cookies].map(([k, v]) => `${k}=${v}`).join("; ");
-  }
-
-  #absorber(response) {
-    for (const brut of response.headers.getSetCookie()) {
-      const [paire] = brut.split(";");
-      const index = paire.indexOf("=");
-      if (index < 0) continue;
-      const nom = paire.slice(0, index).trim();
-      const valeur = paire.slice(index + 1);
-      if (valeur === "" || valeur === "deleted") this.cookies.delete(nom);
-      else this.cookies.set(nom, valeur);
-    }
-  }
-
-  async get(chemin, { suivre = true } = {}) {
-    const response = await fetch(APP + chemin, {
-      headers: { cookie: this.#entete() },
-      redirect: suivre ? "follow" : "manual",
-    });
-    this.#absorber(response);
-    return {
-      status: response.status,
-      location: response.headers.get("location"),
-      body: await response.text(),
-    };
-  }
-
-  /**
-   * Soumet le formulaire de `chemin` qui contient le premier champ fourni.
-   * Renvoie le statut, la redirection et, le cas échéant, le message d'erreur
-   * que l'action a renvoyé dans son état.
-   */
-  async submit(chemin, champs) {
-    const { body } = await this.get(chemin);
-    const ancre = Object.keys(champs)[0];
-
-    const formulaires = body.match(/<form\b[\s\S]*?<\/form>/g) ?? [];
-    const cible = formulaires.find((f) => f.includes(`name="${ancre}"`));
-    if (!cible) {
-      throw new Error(
-        `${chemin} : aucun <form> ne porte le champ « ${ancre} » ` +
-          `(${formulaires.length} formulaire(s) sur la page)`,
-      );
-    }
-
-    const payload = new FormData();
-    for (const balise of cible.match(/<input[^>]*>/g) ?? []) {
-      if (!balise.includes('type="hidden"')) continue;
-      const nom = balise.match(/name="([^"]*)"/);
-      const valeur = balise.match(/value="([^"]*)"/);
-      if (nom) payload.append(decode(nom[1]), valeur ? decode(valeur[1]) : "");
-    }
-    if (![...payload.keys()].some((k) => k.startsWith("$ACTION"))) {
-      throw new Error(`${chemin} : pas de Server Action dans ce formulaire`);
-    }
-    for (const [k, v] of Object.entries(champs)) payload.set(k, v);
-
-    const response = await fetch(APP + chemin, {
-      method: "POST",
-      headers: { cookie: this.#entete(), origin: APP },
-      body: payload,
-      redirect: "manual",
-    });
-    this.#absorber(response);
-
-    const texte = await response.text();
-    const trouve = texte.match(/"error":"((?:[^"\\]|\\.){4,300})"/);
-    return {
-      status: response.status,
-      location: response.headers.get("location"),
-      message: trouve ? JSON.parse(`"${trouve[1]}"`) : null,
-    };
-  }
-
-  /**
-   * Jeton d'accès de la session, lu dans le cookie posé par @supabase/ssr.
-   *
-   * Au-delà d'une certaine taille, ce cookie est DÉCOUPÉ en « …-auth-token.0 »,
-   * « .1 », etc. Ne lire que le cookie entier donnerait un jeton tronqué —
-   * et une erreur « Expected 3 parts in JWT » à la première requête.
-   */
-  jeton() {
-    const morceaux = new Map();
-    for (const [nom, valeur] of this.cookies) {
-      const decoupe = nom.match(/^(.*)\.(\d+)$/);
-      if (decoupe) {
-        const [, base, index] = decoupe;
-        if (!morceaux.has(base)) morceaux.set(base, []);
-        morceaux.get(base)[Number(index)] = valeur;
-      } else {
-        morceaux.set(nom, [valeur]);
-      }
-    }
-
-    for (const parties of morceaux.values()) {
-      const valeur = parties.join("");
-      if (!valeur.startsWith("base64-")) continue;
-      try {
-        const data = JSON.parse(
-          Buffer.from(valeur.slice("base64-".length), "base64").toString("utf8"),
-        );
-        if (data?.access_token) return data.access_token;
-      } catch {
-        // Cookie « sb-… » qui n'est pas une session (vérificateur PKCE).
-      }
-    }
-    return null;
-  }
-}
-
-const decode = (s) =>
-  s
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#x27;", "'")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
 
 // ---------------------------------------------------------------------------
 // Accès direct à Supabase, pour constater ce que l'application a écrit
@@ -264,7 +138,7 @@ async function main() {
   // -------------------------------------------------------------------------
   section("1. L'administrateur crée un compte garage (sans vérification d'e-mail)");
 
-  const admin = new Navigateur();
+  const admin = new Navigateur(APP);
   let r = await admin.submit("/login", {
     email: ADMIN_EMAIL,
     password: ADMIN_PASSWORD,
@@ -329,7 +203,7 @@ async function main() {
   // -------------------------------------------------------------------------
   section("2. Le garage doit remplacer le mot de passe fixé par l'administrateur");
 
-  const garage = new Navigateur();
+  const garage = new Navigateur(APP);
   r = await garage.submit("/login", { email: GARAGE.email, password: GARAGE.initial });
   check("connexion avec le mot de passe initial", r.status === 303 && r.location === "/",
     `HTTP ${r.status} -> ${r.location} ${r.message ?? ""}`);
@@ -363,7 +237,7 @@ async function main() {
   check("la notification ne transporte AUCUN mot de passe",
     !trace.includes(GARAGE.initial) && !trace.includes(GARAGE.choisi));
 
-  const ancien = new Navigateur(); // session neuve : /login est fermé à un connecté
+  const ancien = new Navigateur(APP); // session neuve : /login est fermé à un connecté
   r = await ancien.submit("/login", { email: GARAGE.email, password: GARAGE.initial });
   check("l'ancien mot de passe ne fonctionne plus", r.location === null,
     `-> ${r.location}`);
@@ -371,7 +245,7 @@ async function main() {
   // -------------------------------------------------------------------------
   section("3. Inscription en ligne : vérification d'e-mail obligatoire");
 
-  const visiteur = new Navigateur();
+  const visiteur = new Navigateur(APP);
   r = await visiteur.submit("/signup", {
     garageName: `Inscrit ${RUN}`,
     fullName: "Gaëlle Martin",
@@ -388,7 +262,7 @@ async function main() {
     "GET", `/rest/v1/garages?email=eq.${INSCRIT.email}&select=id`);
   check("aucun garage créé à ce stade", (avant ?? []).length === 0);
 
-  const refuse = new Navigateur();
+  const refuse = new Navigateur(APP);
   r = await refuse.submit("/login", { email: INSCRIT.email, password: INSCRIT.password });
   check("connexion refusée avant vérification",
     r.location === null && (r.message ?? "").includes("vérifi"),
@@ -440,7 +314,7 @@ async function main() {
   check("l'administrateur est notifié de l'inscription",
     (notifsInscription ?? []).length === 1);
 
-  const inscrit = new Navigateur();
+  const inscrit = new Navigateur(APP);
   r = await inscrit.submit("/login", { email: INSCRIT.email, password: INSCRIT.password });
   check("connexion possible une fois l'adresse vérifiée",
     r.status === 303 && r.location === "/", `HTTP ${r.status} -> ${r.location}`);
@@ -530,7 +404,7 @@ async function main() {
   check("compteurs remis à zéro pour la mesure", purge.status < 300,
     `HTTP ${purge.status} ${JSON.stringify(purge.data)?.slice(0, 100)}`);
 
-  const attaquant = new Navigateur();
+  const attaquant = new Navigateur(APP);
   let bloqueAu = null;
   for (let essai = 1; essai <= 8 && bloqueAu === null; essai++) {
     const { message } = await attaquant.submit("/login", {
@@ -594,13 +468,13 @@ async function main() {
     traceReset.slice(0, 120));
   check("et ne contient PAS le mot de passe temporaire", !traceReset.includes(temporaire));
 
-  const apresReset = new Navigateur();
+  const apresReset = new Navigateur(APP);
   r = await apresReset.submit("/login", { email: GARAGE.email, password: temporaire });
   check("connexion avec le mot de passe temporaire",
     r.status === 303 && r.location === "/", `HTTP ${r.status} -> ${r.location} ${r.message ?? ""}`);
   await redirigeVers(apresReset, "/app", "/change-password");
 
-  const perime = new Navigateur();
+  const perime = new Navigateur(APP);
   r = await perime.submit("/login", { email: GARAGE.email, password: GARAGE.choisi });
   check("le mot de passe choisi par le garage est invalidé", r.location === null,
     `-> ${r.location}`);

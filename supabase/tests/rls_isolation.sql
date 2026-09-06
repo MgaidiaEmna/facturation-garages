@@ -55,6 +55,25 @@
 --       using (true) with check (true);
 --       ouvre les compteurs de limitation         -> section 17 hurle
 --
+-- Phase 3 — chaque ligne a été injectée et vérifiée :
+--   create policy "garages_self_write" on garages for update to authenticated
+--     using (id = my_garage_id()) with check (id = my_garage_id());
+--       laisse un garage réécrire sa fiche        -> section 2 hurle
+--       Cette frontière est PARTAGÉE : la 2 tombe la première (renommage),
+--       puis la 13 (compteur d'essai). La 18 la couvre pour les colonnes
+--       que la phase 3 expose — mentions légales, franchise de TVA, option
+--       premium, réactivation. Mesuré : en neutralisant les assertions des
+--       sections 2 et 13, c'est la 18 qui hurle (« un garage a réécrit ses
+--       mentions légales »). Les deux mutations ci-dessous, elles, ne sont
+--       attrapées QUE par la 18.
+--   create or replace function garage_is_deletable(g uuid) returns boolean
+--     language sql stable security definer set search_path = public as
+--     $m$ select true $m$;
+--       annonce supprimable un garage qui a émis   -> section 18 hurle
+--   create or replace function garage_accounts(g uuid) ... en retirant le
+--     `is_admin()` du WHERE
+--       ouvre les comptes de connexion à tout garage -> section 18 hurle
+--
 --   PIÈGE : n'ouvrir que le GRANT sur `auth_rate_limit_hit` ne prouve RIEN.
 --   La fonction échoue quand même sur l'absence de droits table + RLS, le
 --   test annonce « bloqué » et il a raison — aucune frontière n'a bougé. Une
@@ -944,6 +963,151 @@ select public.expect_blocked(
   'un client a appelé notify_admin() directement');
 
 do $$ begin raise notice '17. Limitation de débit hors de portée ... OK'; end $$;
+
+-- ===========================================================================
+-- 18. Fiche garage : maintenue par l'administrateur, pas par le garage
+-- ===========================================================================
+-- La fiche porte les mentions imprimées sur chaque facture — SIRET, RCS,
+-- capital, franchise en base de TVA. Un garage qui pourrait les réécrire
+-- pourrait facturer sous une identité qui n'est pas la sienne, et le faire
+-- rétroactivement pour ses prochaines émissions. Il LIT sa fiche
+-- (section 1), il ne l'écrit pas.
+--
+-- On repasse propriétaire le temps de désactiver le garage B : sans garage
+-- inactif, « un garage se réactive tout seul » ne peut pas être éprouvé.
+reset role;
+update garages set is_active = false
+where id = 'b0000000-0000-0000-0000-0000000000b1';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"bbbbbbbb-0000-0000-0000-000000000002","role":"authenticated"}';
+
+-- Le renommage est déjà éprouvé en section 2 : on ne le refait pas. Ce que
+-- la phase 3 ajoute, ce sont les colonnes que l'écran d'administration écrit
+-- désormais — mentions légales, franchise de TVA, option premium,
+-- activation — et deux fonctions qui n'existaient pas.
+select public.expect_blocked(
+  $q$ update garages set siret = '99999999999999',
+                         rcs_city = 'RCS forgé',
+                         vat_number = 'FR99999999999'
+      where id = 'b0000000-0000-0000-0000-0000000000b1' $q$,
+  'un garage a réécrit ses mentions légales');
+
+-- Se déclarer en franchise, c'est faire disparaître la TVA de ses factures.
+select public.expect_blocked(
+  $q$ update garages set vat_exempt = true
+      where id = 'b0000000-0000-0000-0000-0000000000b1' $q$,
+  'un garage s''est déclaré en franchise en base de TVA');
+
+-- Le drapeau premium n'est pas un rôle, mais il commande l'écriture des
+-- logos (section 8) : se l'octroyer, c'est s'offrir l'option.
+select public.expect_blocked(
+  $q$ update garages set logo_management_enabled = true
+      where id = 'b0000000-0000-0000-0000-0000000000b1' $q$,
+  'un garage s''est octroyé l''option premium');
+
+-- Se réactiver, c'est se rouvrir le droit d'écrire : `has_write_access()`
+-- commence par `ga.is_active`.
+select public.expect_blocked(
+  $q$ update garages set is_active = true
+      where id = 'b0000000-0000-0000-0000-0000000000b1' $q$,
+  'un garage désactivé s''est réactivé lui-même');
+
+select public.expect_blocked(
+  $q$ insert into garages (name, locale) values ('Garage fantôme', 'FR') $q$,
+  'un garage a créé un autre garage');
+
+select public.expect_blocked(
+  $q$ delete from garages where id = 'b0000000-0000-0000-0000-0000000000b1' $q$,
+  'un garage a supprimé sa propre fiche');
+
+-- Les deux fonctions de l'espace d'administration ne répondent pas à un
+-- garage. Elles renvoient « rien » plutôt qu'une erreur — mais ce rien doit
+-- être vérifié, sinon un `is_admin()` retiré passerait inaperçu.
+do $$
+begin
+  if garage_is_deletable('b0000000-0000-0000-0000-0000000000b1') then
+    raise exception 'FUITE : garage_is_deletable() a répondu « vrai » à un garage.'
+      using errcode = 'F0001';
+  end if;
+
+  if exists (select 1 from garage_accounts('b0000000-0000-0000-0000-0000000000b1')) then
+    raise exception 'FUITE : un garage a lu les comptes de connexion.'
+      using errcode = 'F0001';
+  end if;
+
+  -- Et pas davantage sur le garage du voisin.
+  if exists (select 1 from garage_accounts('a0000000-0000-0000-0000-0000000000a1')) then
+    raise exception 'FUITE : un garage a lu les comptes de connexion du garage A.'
+      using errcode = 'F0001';
+  end if;
+
+  raise notice '18a. Fiche garage : le garage ne l''écrit pas OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Côté administrateur : ce que la règle annonce, la base le fait
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"dddddddd-0000-0000-0000-000000000004","role":"authenticated"}';
+
+do $$
+declare
+  v_email text;
+begin
+  -- A a émis une facture en section 4 : la conservation légale le fige.
+  if garage_is_deletable('a0000000-0000-0000-0000-0000000000a1') then
+    raise exception
+      'FUITE : un garage ayant émis une facture est annoncé supprimable.'
+      using errcode = 'F0001';
+  end if;
+
+  -- B n'a qu'un brouillon : rien à conserver, il reste effaçable.
+  if not garage_is_deletable('b0000000-0000-0000-0000-0000000000b1') then
+    raise exception 'Un garage sans facture émise devrait être supprimable.';
+  end if;
+
+  -- L'adresse de connexion vit dans auth.users, pas dans garages.email :
+  -- c'est tout l'objet de la fonction.
+  select email into v_email
+  from garage_accounts('b0000000-0000-0000-0000-0000000000b1');
+
+  if v_email is distinct from 'garage-b@test.local' then
+    raise exception
+      'garage_accounts() ne rend pas l''adresse de connexion (obtenu : %).', v_email;
+  end if;
+
+  raise notice '18b. Règle de suppression : dit vrai         OK';
+end $$;
+
+-- L'annonce et le refus doivent coïncider. Ce que la fonction déclare
+-- impossible, le garde-fou doit le refuser…
+select public.expect_blocked(
+  $q$ delete from garages where id = 'a0000000-0000-0000-0000-0000000000a1' $q$,
+  'l''administrateur a supprimé un garage ayant émis des factures');
+
+-- … et ce qu'elle déclare possible doit réellement passer. Un bouton grisé
+-- à tort est un bug ; un bouton actif qui échoue en est un autre.
+do $$
+declare v_left int;
+begin
+  delete from garages where id = 'b0000000-0000-0000-0000-0000000000b1';
+
+  select count(*) into v_left from garages
+  where id = 'b0000000-0000-0000-0000-0000000000b1';
+  if v_left <> 0 then
+    raise exception 'La suppression d''un garage sans facture émise a échoué.';
+  end if;
+
+  -- Le profil part en cascade : la base ne garde pas de compte orphelin.
+  -- (Le compte Auth, lui, est retiré par `deleteGarageAction`.)
+  select count(*) into v_left from profiles
+  where garage_id = 'b0000000-0000-0000-0000-0000000000b1';
+  if v_left <> 0 then
+    raise exception 'Un profil a survécu à la suppression de son garage.';
+  end if;
+
+  raise notice '18c. Suppression conditionnelle : effective  OK';
+end $$;
 
 do $$
 begin

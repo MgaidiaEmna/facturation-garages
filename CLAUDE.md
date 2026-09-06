@@ -12,15 +12,22 @@ npm run lint     # ESLint
 ```
 
 ```bash
-npm run db:seed      # crée le compte super administrateur (idempotent)
-npm run verify:auth  # parcours d'authentification de bout en bout
+npm run db:seed         # crée le compte super administrateur (idempotent)
+npm run verify:auth     # parcours d'authentification de bout en bout
+npm run verify:garages  # espace d'administration des garages (phase 3)
 ```
 
-`verify:auth` pilote l'application **réellement lancée** en se comportant comme un navigateur
-sans JavaScript (les Server Actions de Next sont rendues en amélioration progressive). Il exige
-la pile Supabase locale, `npm run dev` et le seed. Il vérifie le **câblage** — actions, proxy,
-gardes de layout, redirections ; les preuves de **frontières**, elles, restent en SQL. Un RLS
-parfait derrière un formulaire mal branché ne sert à rien, et l'inverse est encore plus vrai.
+Les deux scripts `verify:*` pilotent l'application **réellement lancée** en se comportant
+comme un navigateur sans JavaScript (les Server Actions de Next sont rendues en amélioration
+progressive) ; ils partagent `scripts/lib/navigateur.mjs`. Ils exigent la pile Supabase locale,
+`npm run dev` et le seed, et vérifient le **câblage** — actions, proxy, gardes de layout,
+redirections ; les preuves de **frontières**, elles, restent en SQL. Un RLS parfait derrière un
+formulaire mal branché ne sert à rien, et l'inverse est encore plus vrai.
+
+Angle mort assumé : ce qui n'existe dans le HTML qu'après exécution du JavaScript — contenu
+d'une boîte de dialogue Radix, interrupteurs — échappe à ces scripts. On l'éprouve par son
+effet en base, avec la session de l'utilisateur (jamais la clé service role, qui contournerait
+ce qu'on veut vérifier). Un test navigateur est prévu en phase 10.
 
 Base de données : migrations SQL versionnées à la main dans `supabase/migrations`, appliquées
 via la CLI Supabase (`supabase migration new <nom>`, `supabase db push`). **Pas d'ORM**, pas de
@@ -38,7 +45,7 @@ projet la désactive, plutôt que de laisser entrer un compte non vérifié.
 Deux preuves exécutables, à rejouer après toute modification du schéma :
 
 ```bash
-psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql   # frontières (17 sections)
+psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql   # frontières (18 sections)
 psql "$DATABASE_URL" -f supabase/tests/rate_limit.sql      # le limiteur compte juste
 ```
 
@@ -89,7 +96,7 @@ navigateur. **La liste des usages de `createAdminClient()` est close** — trois
 
 | Usage | Fichier | Pourquoi le RLS ne suffit pas |
 |---|---|---|
-| Créer / réinitialiser le compte Auth d'un garage | `lib/auth/admin-actions.ts` | l'API `auth.admin` exige la clé service role |
+| Créer / réinitialiser / supprimer le compte Auth d'un garage | `lib/auth/admin-actions.ts` | l'API `auth.admin` exige la clé service role |
 | Amorcer le super admin | `scripts/seed-admin.mts` | aucun admin n'existe encore pour s'auto-autoriser |
 | Compter les tentatives de connexion | `lib/auth/rate-limit.ts` | l'appelant n'est **pas encore authentifié** |
 
@@ -153,6 +160,42 @@ garage continue de saisir des brouillons ; c'est l'émission qui produit une fac
 c'est elle qu'on plafonne. `finalize_block_reason()` donne le code, `finalize_block_message()`
 la phrase affichée — **la même** que celle levée par `finalize_invoice()`, pour qu'annonce et
 refus ne puissent pas diverger.
+
+### Espace admin (`/admin`)
+
+| Écran | Route |
+|---|---|
+| Tableau de bord | `/admin` |
+| Garages — liste, recherche, filtre actif/inactif | `/admin/garages` |
+| Fiche garage | `/admin/garages/[id]` |
+| Comptes de connexion | `/admin/comptes`, `/admin/comptes/nouveau` |
+| Journal | `/admin/notifications` |
+
+Un garage **lit** sa fiche, il ne l'écrit pas : `garages_admin_write` est la seule voie
+d'écriture. Le formulaire d'identité du vendeur se **génère depuis
+`LocaleConfig.sellerIdentityFields`** — la même liste sert à l'affichage, au calcul des
+mentions manquantes (`missingSellerFields()`) et au futur pied de facture. Ne jamais y
+réécrire la liste des champs en dur.
+
+Une fiche **incomplète s'enregistre**. Le format est validé (zod), la présence ne l'est pas.
+
+Deux fonctions SQL portent ce que le RLS seul ne sait pas dire à l'UI :
+
+| Fonction | Rôle | Pourquoi en SQL |
+|---|---|---|
+| `garage_is_deletable(g)` | aucune facture non-`draft` | `invoices_guard_trg` appliquera la même règle à la cascade ; la recalculer en TypeScript la ferait diverger — même principe que `finalize_block_message()` |
+| `garage_accounts(g)` | comptes de connexion + adresse réelle | l'adresse de connexion vit dans `auth.users`, hors PostgREST ; `garages.email` est une adresse de **contact**, modifiable, et les deux divergent dès la première correction |
+
+Les deux sont `security definer` et gardées par `is_admin()` **dans le corps** : un
+non-administrateur obtient `false` / zéro ligne, pas une erreur. Aucune n'ouvre un quatrième
+usage de la clé service role.
+
+**Suppression d'un garage** : possible uniquement si `garage_is_deletable()` répond vrai. Le
+nom doit être retapé, et la comparaison se fait côté serveur **contre le nom lu en base** —
+jamais contre un nom transporté par le formulaire, qui viendrait du même navigateur que la
+confirmation. Ordre imposé : le garage d'abord (c'est l'opération qui peut échouer), le compte
+Auth ensuite. L'inverse laisserait, en cas d'échec, un garage vivant que plus personne ne peut
+ouvrir.
 
 ### Moteur de facture
 

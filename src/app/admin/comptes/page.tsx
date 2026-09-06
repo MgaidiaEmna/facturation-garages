@@ -12,8 +12,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDateShort } from "@/lib/format";
-import { listGarageAccounts, type GarageAccount } from "@/lib/admin/queries";
+import { AccessBadge, InactiveBadge } from "@/components/admin/garage-badges";
+import { listGarageAccounts } from "@/lib/admin/queries";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 
 export const metadata: Metadata = {
@@ -70,18 +70,36 @@ export default async function AccountsPage() {
               {accounts.map((account) => (
                 <TableRow key={account.userId}>
                   <TableCell className="font-medium">
-                    {account.garage?.name ?? "—"}
+                    {account.garage ? (
+                      <Link
+                        href={`/admin/garages/${account.garage.id}`}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {account.garage.name}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
                     {account.garage && !account.garage.isActive ? (
-                      <Badge variant="destructive" className="ms-2">
-                        Désactivé
-                      </Badge>
+                      <span className="ms-2 inline-block align-middle">
+                        <InactiveBadge />
+                      </span>
                     ) : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {account.garage?.email ?? "—"}
                   </TableCell>
                   <TableCell>
-                    <AccessBadge account={account} />
+                    {account.garage ? (
+                      <AccessBadge
+                        accountStatus={account.garage.accountStatus}
+                        trialInvoicesUsed={account.garage.trialInvoicesUsed}
+                        trialInvoiceLimit={account.garage.trialInvoiceLimit}
+                        subscriptionEndDate={account.subscriptionEndDate}
+                      />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {account.garage?.origin === "self_signup"
@@ -106,31 +124,5 @@ export default async function AccountsPage() {
         </div>
       )}
     </div>
-  );
-}
-
-/** Essai en cours, abonnement en vigueur, ou abonnement échu. */
-function AccessBadge({ account }: { account: GarageAccount }) {
-  if (!account.garage) return <span className="text-muted-foreground">—</span>;
-
-  if (account.garage.accountStatus === "trial") {
-    const { trialInvoicesUsed: used, trialInvoiceLimit: limit } = account.garage;
-    return (
-      <Badge variant={used >= limit ? "destructive" : "secondary"}>
-        Essai {used} / {limit}
-      </Badge>
-    );
-  }
-
-  if (!account.subscriptionEndDate) {
-    return <Badge variant="destructive">Sans abonnement</Badge>;
-  }
-
-  const expired = new Date(account.subscriptionEndDate) < new Date();
-  return (
-    <Badge variant={expired ? "destructive" : "outline"}>
-      {expired ? "Expiré le " : "Jusqu'au "}
-      {formatDateShort(account.subscriptionEndDate)}
-    </Badge>
   );
 }

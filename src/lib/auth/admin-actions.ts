@@ -2,10 +2,12 @@
 
 import { randomInt } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { garageDeletionSchema } from "@/lib/admin/garage-schema";
 import { createGarageAccountSchema } from "./password-policy";
 import { requireAdmin } from "./session";
 import type { AuthFormState } from "./actions";
@@ -27,7 +29,9 @@ import type { AuthFormState } from "./actions";
  *   dans une notification.
  *
  * Chaque appel à `createAdminClient()` (clé service role, hors RLS) est
- * précédé d'un `requireAdmin()`.
+ * précédé d'un `requireAdmin()`. Trois opérations l'exigent, toutes ici :
+ * créer un compte Auth, en réinitialiser le mot de passe, et le supprimer
+ * avec son garage — l'API `auth.admin` n'existe pas sous une autre clé.
  */
 
 /** Alphabet sans caractères ambigus : ni O/0, ni I/l/1. Un mot de passe qui se dicte. */
@@ -245,4 +249,143 @@ export async function resetGaragePasswordAction(
     temporaryPassword,
     targetLabel: garage?.name ?? target.full_name ?? "ce compte",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Supprimer un garage (et son compte de connexion)
+// ---------------------------------------------------------------------------
+
+export interface DeleteGarageState extends AuthFormState {
+  /** Renseigné quand la confirmation saisie ne correspond pas au nom réel. */
+  confirmMismatch?: boolean;
+}
+
+/**
+ * Suppression définitive d'un garage.
+ *
+ * TROIS VERROUS, dont deux seulement sont dans ce fichier :
+ *
+ *  1. `garage_is_deletable()` — la base répond si le garage n'a émis AUCUNE
+ *     facture. C'est la même règle que celle qu'appliquera de toute façon
+ *     `invoices_guard_trg` en refusant la suppression en cascade : on
+ *     l'interroge au lieu de la réécrire, pour que l'annonce et le refus ne
+ *     divergent jamais.
+ *  2. Le nom du garage doit être retapé à l'identique. Comparé au nom LU EN
+ *     BASE — jamais à un nom transporté par le formulaire, qui viendrait du
+ *     même navigateur que la confirmation et ne prouverait donc rien.
+ *  3. Le RLS, qui refuserait l'UPDATE/DELETE à qui n'est pas administrateur
+ *     même si `requireAdmin()` sautait.
+ *
+ * ORDRE DES OPÉRATIONS : le garage d'abord, le compte Auth ensuite. La
+ * suppression du garage est celle qui peut échouer (garde-fou d'immuabilité,
+ * RLS) ; si l'on détruisait les comptes Auth en premier, un échec ensuite
+ * laisserait un garage vivant que plus personne ne pourrait ouvrir.
+ *
+ * Le compte Auth est supprimé pour ne pas laisser d'orphelin : il retiendrait
+ * l'adresse e-mail en otage (« already been registered ») et pourrait encore
+ * se connecter, pour atterrir sur un espace sans profil.
+ */
+export async function deleteGarageAction(
+  _prevState: DeleteGarageState,
+  formData: FormData,
+): Promise<DeleteGarageState> {
+  await requireAdmin();
+
+  const parsed = garageDeletionSchema.safeParse({
+    garageId: formData.get("garageId"),
+    confirmName: formData.get("confirmName"),
+  });
+
+  if (!parsed.success) {
+    return { fieldErrors: fieldErrorsOf(parsed.error) };
+  }
+
+  const supabase = await createClient();
+
+  const { data: garage, error: readError } = await supabase
+    .from("garages")
+    .select("id, name")
+    .eq("id", parsed.data.garageId)
+    .maybeSingle();
+
+  if (readError || !garage) {
+    return { error: "Garage introuvable." };
+  }
+
+  if (parsed.data.confirmName !== garage.name.trim()) {
+    return {
+      confirmMismatch: true,
+      fieldErrors: {
+        confirmName: [`Saisissez exactement « ${garage.name} » pour confirmer.`],
+      },
+    };
+  }
+
+  // Verrou 1 : la base a le dernier mot sur ce qui est effaçable.
+  const { data: deletable, error: ruleError } = await supabase.rpc("garage_is_deletable", {
+    g: garage.id,
+  });
+
+  if (ruleError) {
+    return { error: `Vérification impossible : ${ruleError.message}` };
+  }
+  if (deletable !== true) {
+    return {
+      error:
+        "Ce garage a émis au moins une facture : la conservation légale interdit " +
+        "de l'effacer. Désactivez-le — son espace passera en lecture seule et " +
+        "ses factures resteront consultables.",
+    };
+  }
+
+  // Comptes à supprimer ensuite : lus AVANT, car la suppression du garage
+  // efface les profils en cascade et l'information serait perdue.
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("garage_id", garage.id);
+
+  const userIds = (profiles ?? []).map((profile) => profile.id as string);
+
+  // Fichiers du bucket privé : les lignes `logos` partent en cascade, pas les
+  // objets stockés. Nettoyage au mieux — un fichier oublié ne doit pas faire
+  // échouer la suppression, et le RLS de `storage.objects` autorise déjà
+  // l'administrateur partout (pas besoin de la clé service role ici).
+  const { data: storedFiles } = await supabase.storage.from("logos").list(garage.id);
+  if (storedFiles?.length) {
+    await supabase.storage
+      .from("logos")
+      .remove(storedFiles.map((file) => `${garage.id}/${file.name}`));
+  }
+
+  const { error: deleteError } = await supabase.from("garages").delete().eq("id", garage.id);
+
+  if (deleteError) {
+    return { error: `Suppression impossible : ${deleteError.message}` };
+  }
+
+  // Le garage n'existe plus : les comptes Auth restants sont orphelins.
+  // `auth.admin` exige la clé service role — c'est le même usage que la
+  // création et la réinitialisation, déjà précédé de `requireAdmin()`.
+  const serviceRole = createAdminClient();
+  const orphans: string[] = [];
+
+  for (const userId of userIds) {
+    const { error } = await serviceRole.auth.admin.deleteUser(userId);
+    if (error) orphans.push(userId);
+  }
+
+  if (orphans.length > 0) {
+    return {
+      error:
+        `Le garage « ${garage.name} » a bien été supprimé, mais ${orphans.length} ` +
+        `compte(s) de connexion subsistent dans Supabase Auth. Supprimez-les ` +
+        `depuis le tableau de bord Supabase pour libérer l'adresse e-mail.`,
+    };
+  }
+
+  revalidatePath("/admin/garages");
+  revalidatePath("/admin/comptes");
+  revalidatePath("/admin");
+  redirect(`/admin/garages?supprime=${encodeURIComponent(garage.name)}`);
 }

@@ -1,0 +1,267 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { Building2, CheckCircle2, ChevronRight, Search, UserPlus } from "lucide-react";
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  AccessBadge,
+  IncompleteBadge,
+  InactiveBadge,
+  PremiumBadge,
+} from "@/components/admin/garage-badges";
+import { listGarages, type GarageListItem } from "@/lib/admin/queries";
+
+export const metadata: Metadata = {
+  title: "Garages — Administration",
+};
+
+/** Onglets de filtrage. `undefined` = tous. */
+const FILTERS = [
+  { key: undefined, label: "Tous" },
+  { key: "actifs", label: "Actifs" },
+  { key: "inactifs", label: "Désactivés" },
+] as const;
+
+/**
+ * Recherche et filtre sont portés par l'URL, pas par un état React : la page
+ * reste un Composant Serveur, le formulaire fonctionne sans JavaScript, et un
+ * résultat filtré se partage par simple copie du lien.
+ *
+ * Le filtrage se fait en mémoire plutôt qu'en SQL. Ce n'est pas un
+ * relâchement de l'isolation — l'administrateur voit de toute façon tous les
+ * garages, `is_admin()` le lui accorde. C'est un choix de volume : quelques
+ * dizaines de fiches. À revoir en même temps que la pagination.
+ */
+function filterGarages(
+  garages: GarageListItem[],
+  query: string,
+  statut: string | undefined,
+): GarageListItem[] {
+  const needle = query.trim().toLocaleLowerCase("fr-FR");
+
+  return garages.filter((garage) => {
+    if (statut === "actifs" && !garage.isActive) return false;
+    if (statut === "inactifs" && garage.isActive) return false;
+    if (!needle) return true;
+
+    return [garage.name, garage.email, garage.siret, garage.address]
+      .filter((value): value is string => Boolean(value))
+      .some((value) => value.toLocaleLowerCase("fr-FR").includes(needle));
+  });
+}
+
+export default async function GaragesPage(props: PageProps<"/admin/garages">) {
+  const params = await props.searchParams;
+
+  const query = typeof params.q === "string" ? params.q : "";
+  const statut = typeof params.statut === "string" ? params.statut : undefined;
+  const deleted = typeof params.supprime === "string" ? params.supprime : null;
+
+  const garages = await listGarages();
+  const visible = filterGarages(garages, query, statut);
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Garages</h1>
+          <p className="text-sm text-muted-foreground">
+            Identité légale, conditions de règlement et droits de chaque garage.
+          </p>
+        </div>
+        <Button asChild>
+          <Link href="/admin/comptes/nouveau">
+            <UserPlus aria-hidden />
+            Créer un compte
+          </Link>
+        </Button>
+      </div>
+
+      {deleted ? (
+        <Alert>
+          <CheckCircle2 aria-hidden />
+          <AlertTitle>Garage supprimé</AlertTitle>
+          <AlertDescription>
+            « {deleted} » et son compte de connexion ont été supprimés définitivement.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {garages.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <form className="flex flex-1 items-center gap-2" role="search">
+              <div className="relative flex-1 sm:max-w-xs">
+                <Search
+                  aria-hidden
+                  className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  type="search"
+                  name="q"
+                  defaultValue={query}
+                  placeholder="Nom, e-mail, SIRET…"
+                  aria-label="Rechercher un garage"
+                  className="ps-9"
+                />
+              </div>
+              {statut ? <input type="hidden" name="statut" value={statut} /> : null}
+              <Button type="submit" variant="secondary">
+                Rechercher
+              </Button>
+            </form>
+
+            <nav aria-label="Filtrer par état" className="flex items-center gap-1">
+              {FILTERS.map((filter) => {
+                const active = statut === filter.key;
+                const search = new URLSearchParams();
+                if (query) search.set("q", query);
+                if (filter.key) search.set("statut", filter.key);
+                const href = search.size ? `/admin/garages?${search}` : "/admin/garages";
+
+                return (
+                  <Button
+                    key={filter.label}
+                    asChild
+                    size="sm"
+                    variant={active ? "secondary" : "ghost"}
+                  >
+                    <Link href={href} aria-current={active ? "page" : undefined}>
+                      {filter.label}
+                    </Link>
+                  </Button>
+                );
+              })}
+            </nav>
+          </div>
+
+          {visible.length === 0 ? (
+            <NoResults query={query} />
+          ) : (
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Garage</TableHead>
+                    <TableHead>Identité</TableHead>
+                    <TableHead>Accès</TableHead>
+                    <TableHead className="text-right">Factures</TableHead>
+                    <TableHead>
+                      <span className="sr-only">Ouvrir la fiche</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visible.map((garage) => (
+                    <TableRow key={garage.id}>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/admin/garages/${garage.id}`}
+                            className="font-medium underline-offset-4 hover:underline"
+                          >
+                            {garage.name}
+                          </Link>
+                          {!garage.isActive ? <InactiveBadge /> : null}
+                          {garage.logoManagementEnabled ? <PremiumBadge /> : null}
+                        </div>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                          {garage.email ?? "Adresse de contact non renseignée"}
+                        </p>
+                      </TableCell>
+
+                      <TableCell>
+                        {garage.missingFields.length > 0 ? (
+                          <IncompleteBadge count={garage.missingFields.length} />
+                        ) : (
+                          <Badge variant="outline">Complète</Badge>
+                        )}
+                      </TableCell>
+
+                      <TableCell>
+                        <AccessBadge
+                          accountStatus={garage.accountStatus}
+                          trialInvoicesUsed={garage.trialInvoicesUsed}
+                          trialInvoiceLimit={garage.trialInvoiceLimit}
+                          subscriptionEndDate={garage.subscriptionEndDate}
+                        />
+                      </TableCell>
+
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {garage.invoiceCount}
+                      </TableCell>
+
+                      <TableCell className="text-right">
+                        <Button asChild variant="ghost" size="sm">
+                          <Link href={`/admin/garages/${garage.id}`}>
+                            Ouvrir
+                            <ChevronRight aria-hidden />
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <p className="text-sm text-muted-foreground">
+            {visible.length} garage{visible.length > 1 ? "s" : ""} affiché
+            {visible.length > 1 ? "s" : ""} sur {garages.length}.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Aucun garage en base : l'administration vient d'être installée. */
+function EmptyState() {
+  return (
+    <div className="rounded-lg border border-dashed px-6 py-16 text-center">
+      <Building2 aria-hidden className="mx-auto size-8 text-muted-foreground" />
+      <p className="mt-4 text-sm font-medium">Aucun garage pour l&apos;instant</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+        Créez un compte vous-même, ou attendez qu&apos;un garage s&apos;inscrive en
+        ligne — il démarrera alors en essai gratuit, et sa fiche apparaîtra ici.
+      </p>
+      <Button asChild className="mt-6">
+        <Link href="/admin/comptes/nouveau">
+          <UserPlus aria-hidden />
+          Créer un compte
+        </Link>
+      </Button>
+    </div>
+  );
+}
+
+/** Le filtre ne renvoie rien : on distingue « rien à voir » de « rien trouvé ». */
+function NoResults({ query }: { query: string }) {
+  return (
+    <div className="rounded-lg border border-dashed px-6 py-12 text-center">
+      <p className="text-sm font-medium">Aucun garage ne correspond</p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+        {query
+          ? `Aucun résultat pour « ${query} ». Essayez un autre terme, ou retirez le filtre.`
+          : "Aucun garage dans cet état."}
+      </p>
+      <Button asChild variant="outline" className="mt-6">
+        <Link href="/admin/garages">Voir tous les garages</Link>
+      </Button>
+    </div>
+  );
+}

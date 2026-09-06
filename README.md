@@ -72,6 +72,7 @@ email*.
 | `npm run lint` | ESLint |
 | `npm run db:seed` | Crée le compte super administrateur |
 | `npm run verify:auth` | Rejoue le parcours d'authentification de bout en bout |
+| `npm run verify:garages` | Rejoue l'espace d'administration des garages (phase 3) |
 | `npx supabase start` / `stop` | Pile Supabase locale (Docker) |
 
 ## Base de données
@@ -137,14 +138,18 @@ psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql
 > des messages sont mal décodés et des assertions portant sur des libellés échouent à tort — un
 > faux négatif qui fait perdre du temps sur une vraie régression.
 
-Il couvre, en 17 sections : cloisonnement en lecture et en écriture entre garages (tables
+Il couvre, en 18 sections : cloisonnement en lecture et en écriture entre garages (tables
 filles comprises), escalade de privilège, immuabilité des factures émises, numérotation
 séquentielle, passage en lecture seule sur abonnement expiré, drapeau premium sur les logos,
 isolation du bucket de stockage — et, depuis la phase 2 : compte à l'e-mail non vérifié privé de
 toute donnée, provisionnement d'une inscription en ligne, plafond de l'essai gratuit (3 factures
 finalisées, la 4e refusée), impossibilité de contourner le changement de mot de passe
 obligatoire, cloisonnement du journal d'administration, et fermeture des compteurs de limitation
-de débit.
+de débit. La phase 3 ajoute la **section 18** : un garage ne réécrit ni ses mentions
+légales, ni sa franchise de TVA, ne s'octroie pas l'option premium et ne se réactive pas
+lui-même ; `garage_is_deletable()` et `garage_accounts()` ne répondent qu'à
+l'administrateur ; et ce que la règle de suppression annonce, la base le fait — un garage
+sans facture émise s'efface, un garage qui en a émis est refusé.
 
 **Un test de sécurité qui ne sait pas échouer ne prouve rien.** L'en-tête du fichier liste
 des mutations à injecter (retirer une policy, un trigger) : après toute modification du
@@ -176,6 +181,27 @@ sans JavaScript.
 
 Chaque exécution crée des comptes horodatés, elle est donc rejouable telle quelle. Pour repartir
 de zéro : `npx supabase db reset && npm run db:seed`.
+
+### Vérifier l'espace d'administration des garages
+
+`npm run verify:garages` pilote l'application lancée comme un navigateur sans JavaScript et
+vérifie le **câblage** de la phase 3 : liste, recherche, filtres, formulaire de fiche
+(SIRET normalisé, TVA refusée si elle n'est pas française, franchise enregistrée), affichage
+de l'adresse de connexion réelle, gardes de rôle, et bascule de la règle de suppression dès
+la première facture émise.
+
+```bash
+npm run dev            # dans un autre terminal
+npm run verify:garages
+```
+
+> **Ce qu'il ne peut pas atteindre.** Le contenu d'une boîte de dialogue Radix (suppression,
+> réinitialisation de mot de passe) et les interrupteurs (activation, option premium)
+> n'existent dans le HTML qu'une fois le JavaScript exécuté. Le script les éprouve donc par
+> leur **effet**, en interrogeant la base avec la session de l'administrateur — jamais avec la
+> clé service role, qui contournerait précisément ce qu'on veut vérifier. Le chemin complet
+> de `deleteGarageAction` (confirmation par le nom, puis suppression du compte Auth) reste
+> à couvrir par un test navigateur, prévu en phase 10.
 
 ### Vérifier le limiteur de débit
 
@@ -222,6 +248,49 @@ ne doit jamais être appliqué à un projet Supabase.
   (conservation légale). Le désactiver (`is_active = false`) est la bonne opération.
 - **L'identité légale du garage est maintenue par l'administrateur**, pas par le garage :
   SIRET, RCS, capital et forme juridique conditionnent la conformité des factures.
+
+## Espace d'administration
+
+| Écran | Route | Ce qu'on y fait |
+|---|---|---|
+| Tableau de bord | `/admin` | garages, essais en cours, **fiches incomplètes**, notifications |
+| Garages | `/admin/garages` | liste, recherche (nom, e-mail, SIRET), filtre actif / désactivé |
+| Fiche garage | `/admin/garages/[id]` | identité légale, règlement, droits, compte, suppression |
+| Comptes | `/admin/comptes` | comptes de connexion, réinitialisation de mot de passe |
+| Créer un compte | `/admin/comptes/nouveau` | garage + compte Auth pré-confirmé + abonnement |
+| Notifications | `/admin/notifications` | journal des événements |
+
+### La fiche garage
+
+Un garage **lit** sa fiche — elle alimente ses factures — mais ne l'écrit pas : SIRET, RCS,
+capital et forme juridique conditionnent la conformité, et leur maintien appartient à
+l'administrateur. La policy `garages_admin_write` est la seule voie d'écriture.
+
+Le formulaire d'identité du vendeur est **généré depuis `LocaleConfig.sellerIdentityFields`**,
+pas écrit en dur : la même liste décide de ce qui s'affiche, de ce qui manque et de ce
+qu'imprimera la facture. Ajouter un pays n'oblige pas à rouvrir l'écran.
+
+Une fiche incomplète **s'enregistre quand même**. Le format est vérifié (14 chiffres pour un
+SIRET, `FR` + 11 pour la TVA), la présence ne l'est pas : un garage peut être créé avant que
+toutes ses pièces soient réunies. Un bandeau, une pastille dans la liste et un compteur sur le
+tableau de bord signalent ce qui manque — la facture, elle, l'exigera.
+
+### Activation, option premium, suppression
+
+- **Activation** — `is_active = false` n'est pas cosmétique : `has_write_access()` s'appuie
+  dessus, l'espace du garage passe en lecture seule et l'émission est refusée. Ses données
+  restent intactes.
+- **Option premium** — le booléen `logo_management_enabled`, jamais un rôle. Il commande
+  l'écriture des logos par la policy, et se referme à la requête suivante.
+- **Suppression** — possible **uniquement tant qu'aucune facture n'a été émise**, ce que
+  tranche `garage_is_deletable()`. La même règle est appliquée de toute façon par
+  `invoices_guard_trg` lors de la suppression en cascade : l'écran interroge la base au lieu
+  de recalculer la règle, pour que l'annonce et le refus ne divergent jamais. Le nom du garage
+  doit être retapé à l'identique, et la comparaison se fait **côté serveur, contre le nom lu en
+  base**. Le compte Auth part avec le garage : laissé orphelin, il retiendrait l'adresse
+  e-mail en otage.
+
+Dès la première facture émise, il ne reste que la désactivation — conservation légale.
 
 ## Authentification et comptes
 
@@ -358,11 +427,12 @@ src/
     (auth)/            login, signup, vérification, changement de mot de passe
     auth/confirm/      retour du lien de vérification d'e-mail
     auth/error/        impasses d'authentification, avec issue de secours
-    admin/             espace super admin — comptes, notifications
+    admin/             espace super admin — garages, comptes, notifications
     app/               espace garage
   components/
     ui/                composants shadcn/ui
     auth/              déconnexion, message d'erreur, rattrapage
+    admin/             pastilles d'état d'un garage, partagées par les écrans
     app-shell.tsx      coquille commune aux deux espaces
     access-banner.tsx  état commercial d'un garage (essai, abonnement)
   lib/
@@ -372,11 +442,13 @@ src/
     supabase/          clients navigateur / serveur / admin + middleware
     auth/              session, gardes, actions, politique de mot de passe,
                        limitation de débit
-    admin/             lectures et actions de l'espace administrateur
+    admin/             lectures, actions et validation zod de l'espace admin
 supabase/
   config.toml          configuration de la pile locale (vérification e-mail)
-  migrations/          schéma SQL versionné (phases 1 et 2)
+  migrations/          schéma SQL versionné (phases 1 à 3)
   tests/               preuve d'isolation RLS + stub PostgreSQL local
+scripts/
+  lib/navigateur.mjs   navigateur sans JavaScript, partagé par les vérifications
 ```
 
 ## État d'avancement
@@ -385,7 +457,8 @@ supabase/
 - [x] **Phase 1** — Migrations SQL, RLS, Storage, seed super admin, preuve d'isolation
 - [x] **Phase 2** — Authentification, rôles, protection des routes, inscription en ligne
       avec vérification d'e-mail, essai gratuit, limitation de débit
-- [ ] **Phase 3** — Espace admin : CRUD garages, comptes de connexion, drapeau premium
+- [x] **Phase 3** — Espace admin : fiches garages (identité légale, règlement, franchise
+      de TVA), recherche et filtres, drapeau premium, activation, suppression conditionnelle
 - [ ] **Phase 4** — Abonnements, paiements, blocage en lecture seule
 - [ ] **Phase 5** — Éditeur de facture avec aperçu temps réel
 - [ ] **Phase 6** — Numérotation, finalisation, liste des factures

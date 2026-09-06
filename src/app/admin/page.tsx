@@ -1,24 +1,32 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Bell, Building2, Clock, UserPlus } from "lucide-react";
+import { Bell, Building2, Clock, TriangleAlert, UserPlus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { countUnreadNotifications, listGarageAccounts } from "@/lib/admin/queries";
+import {
+  countUnreadNotifications,
+  listGarageAccounts,
+  listGarages,
+} from "@/lib/admin/queries";
 
 export const metadata: Metadata = {
   title: "Administration — Facturation multi-garages",
 };
 
 export default async function AdminHomePage() {
-  const [accounts, unread] = await Promise.all([
+  const [accounts, garages, unread] = await Promise.all([
     listGarageAccounts(),
+    listGarages(),
     countUnreadNotifications(),
   ]);
 
   const trials = accounts.filter((a) => a.garage?.accountStatus === "trial");
   const pendingPasswordChange = accounts.filter((a) => a.mustChangePassword);
+  // Une fiche incomplète produira des factures non conformes : c'est un
+  // chiffre à voir dès l'arrivée, pas au fond d'un écran de détail.
+  const incomplete = garages.filter((garage) => garage.missingFields.length > 0);
 
   return (
     <div className="space-y-8">
@@ -37,18 +45,24 @@ export default async function AdminHomePage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={<Building2 className="size-4" aria-hidden />}
-          label="Comptes garages"
-          value={accounts.length}
-          href="/admin/comptes"
+          label="Garages"
+          value={garages.length}
+          href="/admin/garages"
         />
         <StatCard
           icon={<Clock className="size-4" aria-hidden />}
           label="En essai gratuit"
           value={trials.length}
           href="/admin/comptes"
+        />
+        <StatCard
+          icon={<TriangleAlert className="size-4" aria-hidden />}
+          label="Fiches incomplètes"
+          value={incomplete.length}
+          href="/admin/garages"
         />
         <StatCard
           icon={<Bell className="size-4" aria-hidden />}
