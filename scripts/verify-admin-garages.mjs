@@ -77,6 +77,17 @@ async function supabase(jeton, methode, chemin, corps) {
 
 const enService = (m, c, b) => supabase(SERVICE, m, c, b);
 
+/**
+ * Ajoute N mois à une date ISO, comme le fait `make_interval` en SQL.
+ * Recalculé ici volontairement : si le script réutilisait la valeur renvoyée
+ * par la base, il ne vérifierait plus rien.
+ */
+function ajouterMois(iso, mois) {
+  const [a, m, j] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 1 + mois, j));
+  return d.toISOString().slice(0, 10);
+}
+
 /** Valeurs d'une fiche complète, telles qu'un vrai formulaire les enverrait. */
 function fiche(surcharges = {}) {
   return {
@@ -166,8 +177,8 @@ async function main() {
   check("elle liste les mentions manquantes",
     page.body.includes("Mentions obligatoires manquantes"));
   check("elle porte une zone dangereuse", page.body.includes("Zone dangereuse"));
-  check("l'abonnement est en lecture seule",
-    page.body.includes("phase 4") && !page.body.includes('name="subscriptionEndDate"'));
+  check("elle porte le formulaire d'encaissement",
+    page.body.includes("Enregistrer un paiement") && page.body.includes('name="paidOn"'));
 
   // --- Refus : un SIRET qui n'a pas 14 chiffres ---
   // L'erreur de champ est rendue par `useActionState`, donc invisible pour un
@@ -296,7 +307,79 @@ async function main() {
     JSON.stringify(survivant));
 
   // -------------------------------------------------------------------------
-  section("5. Gardes de rôle");
+  section("5. Abonnement et paiements");
+
+  // Le garage a été créé avec un abonnement d'un an : c'est de CETTE échéance
+  // que doit partir la prolongation, pas d'aujourd'hui.
+  const { data: avant } = await enService(
+    "GET",
+    `/rest/v1/subscriptions?garage_id=eq.${garageId}&select=end_date`,
+  );
+  const echeanceAvant = avant?.[0]?.end_date;
+  check("échéance initiale lue", Boolean(echeanceAvant), JSON.stringify(avant));
+
+  page = await admin.get(`/admin/garages/${garageId}`);
+  check("l'historique est vide au départ", page.body.includes("Aucun paiement enregistré"));
+
+  r = await admin.submit(`/admin/garages/${garageId}`, {
+    paidOn: new Date().toISOString().slice(0, 10),
+    amount: "240",
+    method: "virement",
+    months: "12",
+    endDate: "",
+    notes: "Renouvellement annuel",
+  });
+  check("le paiement est accepté", r.status === 200 && !r.message,
+    `HTTP ${r.status} ${r.message ?? ""}`);
+
+  const { data: apres } = await enService(
+    "GET",
+    `/rest/v1/subscriptions?garage_id=eq.${garageId}&select=end_date`,
+  );
+  const attendu = ajouterMois(echeanceAvant, 12);
+  check("l'abonnement est prolongé à partir de l'échéance en cours",
+    apres?.[0]?.end_date === attendu,
+    `attendu ${attendu}, obtenu ${apres?.[0]?.end_date}`);
+
+  const { data: paiements } = await enService(
+    "GET",
+    `/rest/v1/payments?garage_id=eq.${garageId}&select=amount,method,months_added,period_end,notes`,
+  );
+  const paiement = paiements?.[0];
+  check("le paiement est consigné", Number(paiement?.amount) === 240 &&
+    paiement?.method === "virement" && Number(paiement?.months_added) === 12,
+    JSON.stringify(paiement));
+  check("la ligne d'historique porte l'échéance obtenue",
+    paiement?.period_end === attendu, String(paiement?.period_end));
+
+  page = await admin.get(`/admin/garages/${garageId}`);
+  check("l'historique affiche l'encaissement",
+    page.body.includes("Renouvellement annuel") && page.body.includes("+ 12 mois"));
+  check("l'état d'abonnement est annoncé", page.body.includes("Actif jusqu"));
+
+  // Saisie incohérente : une durée ET une date. La base doit refuser, et rien
+  // ne doit bouger.
+  r = await admin.submit(`/admin/garages/${garageId}`, {
+    paidOn: new Date().toISOString().slice(0, 10),
+    amount: "10",
+    method: "especes",
+    months: "1",
+    endDate: ajouterMois(attendu, 1),
+    notes: "",
+  });
+  const { data: inchange } = await enService(
+    "GET",
+    `/rest/v1/subscriptions?garage_id=eq.${garageId}&select=end_date`,
+  );
+  check("« durée ET date » est refusé, sans rien changer",
+    inchange?.[0]?.end_date === attendu, String(inchange?.[0]?.end_date));
+
+  page = await admin.get("/admin");
+  check("le tableau de bord suit les abonnements",
+    page.body.includes("Abonnements expirés") && page.body.includes("Expirant sous 7 jours"));
+
+  // -------------------------------------------------------------------------
+  section("6. Gardes de rôle");
 
   const garage = new Navigateur(APP);
   r = await garage.submit("/login", { email: GARAGE.email, password: GARAGE.motDePasse });

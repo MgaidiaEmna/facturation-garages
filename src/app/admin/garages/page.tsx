@@ -22,6 +22,7 @@ import {
 } from "@/components/admin/garage-badges";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { subscriptionStatus } from "@/lib/admin/payment-schema";
 import { listGarages, type GarageListItem } from "@/lib/admin/queries";
 
 export const metadata: Metadata = {
@@ -33,6 +34,8 @@ const FILTERS = [
   { key: undefined, label: "Tous" },
   { key: "actifs", label: "Actifs" },
   { key: "inactifs", label: "Désactivés" },
+  { key: "expires", label: "Abonnement expiré" },
+  { key: "bientot", label: "Expire sous 7 j" },
 ] as const;
 
 /**
@@ -55,6 +58,18 @@ function filterGarages(
   return garages.filter((garage) => {
     if (statut === "actifs" && !garage.isActive) return false;
     if (statut === "inactifs" && garage.isActive) return false;
+
+    // Les deux filtres d'abonnement emploient le même calcul que les
+    // compteurs du tableau de bord : le lien depuis une tuile doit aboutir
+    // exactement sur les garages qu'elle comptait.
+    if (statut === "expires") {
+      const status = subscriptionStatus(garage.subscriptionEndDate);
+      if (garage.accountStatus !== "subscribed") return false;
+      if (status === "active" || status === "expiring") return false;
+    }
+    if (statut === "bientot" && subscriptionStatus(garage.subscriptionEndDate) !== "expiring") {
+      return false;
+    }
     if (!needle) return true;
 
     return [garage.name, garage.email, garage.siret, garage.address]

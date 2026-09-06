@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Bell, Building2, Clock, TriangleAlert, UserPlus } from "lucide-react";
+import { Bell, Building2, CalendarClock, CalendarX, Clock, TriangleAlert, UserPlus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
+import { subscriptionStatus } from "@/lib/admin/payment-schema";
 import {
   countUnreadNotifications,
   listGarageAccounts,
@@ -29,6 +30,20 @@ export default async function AdminHomePage() {
   // chiffre à voir dès l'arrivée, pas au fond d'un écran de détail.
   const incomplete = garages.filter((garage) => garage.missingFields.length > 0);
 
+  // « Expiré » couvre aussi le garage abonné sans aucune ligne d'abonnement :
+  // dans les deux cas il est censé payer et ne peut plus rien émettre. Les
+  // comptes encore en essai n'y figurent pas — leur limite est d'une autre
+  // nature, et c'est le compteur « En essai gratuit » qui les suit.
+  const expired = garages.filter(
+    (garage) =>
+      garage.accountStatus === "subscribed" &&
+      subscriptionStatus(garage.subscriptionEndDate) !== "active" &&
+      subscriptionStatus(garage.subscriptionEndDate) !== "expiring",
+  );
+  const expiringSoon = garages.filter(
+    (garage) => subscriptionStatus(garage.subscriptionEndDate) === "expiring",
+  );
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -44,7 +59,7 @@ export default async function AdminHomePage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           icon={<Building2 className="size-4" aria-hidden />}
           label="Garages"
@@ -62,6 +77,18 @@ export default async function AdminHomePage() {
           label="Fiches incomplètes"
           value={incomplete.length}
           href="/admin/garages"
+        />
+        <StatCard
+          icon={<CalendarX className="size-4" aria-hidden />}
+          label="Abonnements expirés"
+          value={expired.length}
+          href="/admin/garages?statut=expires"
+        />
+        <StatCard
+          icon={<CalendarClock className="size-4" aria-hidden />}
+          label="Expirant sous 7 jours"
+          value={expiringSoon.length}
+          href="/admin/garages?statut=bientot"
         />
         <StatCard
           icon={<Bell className="size-4" aria-hidden />}

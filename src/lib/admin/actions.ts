@@ -10,6 +10,7 @@ import {
   garageIdSchema,
   garageIdentitySchema,
 } from "@/lib/admin/garage-schema";
+import { registerPaymentSchema } from "@/lib/admin/payment-schema";
 
 /**
  * Actions de l'espace administrateur qui ne touchent pas aux comptes Auth.
@@ -193,4 +194,74 @@ export async function setLogoManagementAction(
 
   revalidateGarage(parsed.data.garageId);
   return {};
+}
+
+// ---------------------------------------------------------------------------
+// Abonnements et paiements (phase 4)
+// ---------------------------------------------------------------------------
+
+export interface PaymentFormState {
+  error?: string;
+  fieldErrors?: Record<string, string[]>;
+  /** Horodatage du dernier enregistrement réussi : rejoue l'accusé de réception. */
+  savedAt?: number;
+  /** Nouvelle échéance, telle que la base l'a calculée — pas telle qu'on l'espérait. */
+  newEndDate?: string;
+}
+
+/**
+ * Consigne un encaissement hors ligne et prolonge l'abonnement.
+ *
+ * L'action ne calcule RIEN : elle valide la saisie, puis passe la main à
+ * `register_payment()`, qui écrit dans `payments` et `subscriptions` sous une
+ * seule transaction et décide seule de la nouvelle échéance. C'est aussi elle
+ * qui refait le contrôle `is_admin()` — `requireAdmin()` ici sert à rediriger
+ * proprement, pas à autoriser.
+ *
+ * La date renvoyée à l'écran est celle que la base a retenue. Recalculer la
+ * même chose en TypeScript pour l'afficher, c'est se donner deux vérités et
+ * attendre qu'elles divergent.
+ */
+export async function registerPaymentAction(
+  _prevState: PaymentFormState,
+  formData: FormData,
+): Promise<PaymentFormState> {
+  await requireAdmin();
+
+  const parsed = registerPaymentSchema.safeParse({
+    garageId: formData.get("garageId"),
+    amount: formData.get("amount"),
+    method: formData.get("method"),
+    paidOn: formData.get("paidOn"),
+    notes: formData.get("notes"),
+    months: formData.get("months"),
+    endDate: formData.get("endDate"),
+  });
+
+  if (!parsed.success) {
+    return { fieldErrors: fieldErrorsOf(parsed.error) };
+  }
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.rpc("register_payment", {
+    p_garage_id: parsed.data.garageId,
+    p_amount: parsed.data.amount ?? null,
+    p_method: parsed.data.method,
+    p_paid_on: parsed.data.paidOn,
+    p_notes: parsed.data.notes ?? null,
+    p_months: parsed.data.months ?? null,
+    p_end_date: parsed.data.endDate ?? null,
+  });
+
+  if (error) {
+    return { error: `Enregistrement impossible : ${error.message}` };
+  }
+
+  const subscription = (Array.isArray(data) ? data[0] : data) as
+    | { end_date?: string }
+    | null;
+
+  revalidateGarage(parsed.data.garageId);
+  return { savedAt: Date.now(), newEndDate: subscription?.end_date };
 }

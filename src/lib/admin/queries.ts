@@ -185,6 +185,23 @@ export interface GarageListItem extends GarageRecord {
   missingFields: string[];
 }
 
+/** Une ligne de l'historique des encaissements. */
+export interface GaragePayment {
+  id: string;
+  /** Date de l'encaissement réel, pas de la saisie. */
+  paidOn: string;
+  amount: number | null;
+  method: string;
+  /** Durée ajoutée, `null` pour une prolongation à date personnalisée. */
+  monthsAdded: number | null;
+  /** Échéance obtenue par ce paiement — rend la ligne lisible seule. */
+  periodEnd: string | null;
+  notes: string | null;
+  /** Qui a enregistré l'encaissement. */
+  recordedBy: string | null;
+  createdAt: string;
+}
+
 /** La fiche complète, telle que l'écran de détail en a besoin. */
 export interface GarageDetail extends GarageListItem {
   /** Comptes de connexion, avec l'adresse réelle lue dans `auth.users`. */
@@ -200,6 +217,10 @@ export interface GarageDetail extends GarageListItem {
   issuedInvoiceCount: number;
   /** Réponse de `garage_is_deletable()` — la règle vient de la base. */
   isDeletable: boolean;
+  /** Début de l'abonnement, `null` si aucun paiement n'a jamais été encaissé. */
+  subscriptionStartDate: string | null;
+  /** Encaissements, du plus récent au plus ancien. */
+  payments: GaragePayment[];
 }
 
 /** Toutes les colonnes de la fiche, dans l'ordre du formulaire. */
@@ -211,7 +232,7 @@ const GARAGE_COLUMNS = `id, name, legal_form, siret, vat_number, rcs_city, capit
 
 /** Embed commun à la liste et au détail. */
 const GARAGE_EMBEDS = `profiles ( id, full_name, must_change_password ),
-   subscriptions ( end_date ),
+   subscriptions ( start_date, end_date ),
    invoices ( count )`;
 
 /** Traduit une ligne `garages` brute en `GarageRecord`. */
@@ -328,7 +349,7 @@ export async function getGarageDetail(garageId: string): Promise<GarageDetail | 
   const subscription = one(data.subscriptions);
   const counted = one(data.invoices);
 
-  const [accountsResult, issuedResult, deletableResult] = await Promise.all([
+  const [accountsResult, issuedResult, deletableResult, paymentsResult] = await Promise.all([
     supabase.rpc("garage_accounts", { g: garageId }),
     supabase
       .from("invoices")
@@ -336,6 +357,15 @@ export async function getGarageDetail(garageId: string): Promise<GarageDetail | 
       .eq("garage_id", garageId)
       .neq("status", "draft"),
     supabase.rpc("garage_is_deletable", { g: garageId }),
+    supabase
+      .from("payments")
+      .select(
+        `id, paid_on, amount, method, months_added, period_end, notes, created_at,
+         profiles ( full_name )`,
+      )
+      .eq("garage_id", garageId)
+      .order("paid_on", { ascending: false })
+      .order("created_at", { ascending: false }),
   ]);
 
   const loginAccounts = (
@@ -349,9 +379,31 @@ export async function getGarageDetail(garageId: string): Promise<GarageDetail | 
     lastSignInAt: (account.last_sign_in_at as string | null) ?? null,
   }));
 
+  const payments = ((paymentsResult.data as Record<string, unknown>[] | null) ?? []).map(
+    (row): GaragePayment => {
+      const author = one(row.profiles);
+      return {
+        id: String(row.id),
+        paidOn: String(row.paid_on),
+        amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
+        method: String(row.method),
+        monthsAdded:
+          row.months_added === null || row.months_added === undefined
+            ? null
+            : Number(row.months_added),
+        periodEnd: (row.period_end as string | null) ?? null,
+        notes: (row.notes as string | null) ?? null,
+        recordedBy: author ? ((author.full_name as string | null) ?? null) : null,
+        createdAt: String(row.created_at),
+      };
+    },
+  );
+
   return {
     ...record,
     subscriptionEndDate: subscription ? String(subscription.end_date) : null,
+    subscriptionStartDate: subscription ? String(subscription.start_date) : null,
+    payments,
     accounts: toAccounts(data.profiles),
     invoiceCount: Number(counted?.count ?? 0),
     missingFields: missingFieldLabels(data, record.locale),

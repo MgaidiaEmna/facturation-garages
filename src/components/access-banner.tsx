@@ -1,7 +1,8 @@
-import { Gift, Lock, TriangleAlert } from "lucide-react";
+import { CalendarClock, Gift, Lock, TriangleAlert } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatDate } from "@/lib/format";
+import { daysUntil, subscriptionStatus } from "@/lib/admin/payment-schema";
 import { trialRemaining, type AccessState, type GarageSummary } from "@/lib/auth/types";
 
 /**
@@ -37,7 +38,33 @@ export function AccessBanner({
     );
   }
 
-  // Essai gratuit épuisé, ou abonnement échu : le message vient de la base.
+  // Abonnement échu : l'espace passe en lecture seule. Le titre le dit et
+  // indique quoi faire — « suspendu » sans suite laisse la personne devant
+  // un écran mort.
+  if (access.finalizeBlockReason === "subscription_expired") {
+    return (
+      <Alert variant="destructive" className="border-destructive/30">
+        <Lock aria-hidden />
+        <AlertTitle>Abonnement expiré — contactez l&apos;administrateur</AlertTitle>
+        <AlertDescription>
+          <p>
+            {access.finalizeBlockMessage ??
+              "Abonnement expiré : impossible de finaliser une facture."}{" "}
+            {access.subscriptionEndDate ? (
+              <>Il a pris fin le {formatDate(access.subscriptionEndDate)}. </>
+            ) : null}
+            Votre espace passe en lecture seule.
+          </p>
+          <p>
+            Vos factures, vos clients et vos prestations restent consultables et
+            intacts. Tout redevient modifiable dès que le paiement est enregistré.
+          </p>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  // Essai gratuit épuisé, ou autre motif : le message vient de la base.
   if (access.finalizeBlockReason) {
     return (
       <Alert variant="destructive" className="border-destructive/30">
@@ -73,6 +100,26 @@ export function AccessBanner({
   }
 
   if (access.subscriptionEndDate) {
+    // Échéance proche : on prévient AVANT la coupure. Découvrir qu'on ne peut
+    // plus facturer le matin où l'on doit facturer, c'est le pire moment.
+    if (subscriptionStatus(access.subscriptionEndDate) === "expiring") {
+      const jours = daysUntil(access.subscriptionEndDate);
+      return (
+        <Alert>
+          <CalendarClock aria-hidden />
+          <AlertTitle>Abonnement à renouveler</AlertTitle>
+          <AlertDescription>
+            Abonnement actif jusqu&apos;au {formatDate(access.subscriptionEndDate)} —{" "}
+            {jours === 0
+              ? "dernier jour"
+              : `plus que ${jours} jour${jours > 1 ? "s" : ""}`}
+            . Contactez l&apos;administrateur pour le prolonger, sans quoi
+            l&apos;émission de factures sera suspendue.
+          </AlertDescription>
+        </Alert>
+      );
+    }
+
     return (
       <p className="text-sm text-muted-foreground">
         Abonnement actif jusqu&apos;au {formatDate(access.subscriptionEndDate)}.

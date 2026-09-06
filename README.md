@@ -144,7 +144,7 @@ psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql
 > des messages sont mal décodés et des assertions portant sur des libellés échouent à tort — un
 > faux négatif qui fait perdre du temps sur une vraie régression.
 
-Il couvre, en 18 sections : cloisonnement en lecture et en écriture entre garages (tables
+Il couvre, en 19 sections : cloisonnement en lecture et en écriture entre garages (tables
 filles comprises), escalade de privilège, immuabilité des factures émises, numérotation
 séquentielle, passage en lecture seule sur abonnement expiré, drapeau premium sur les logos,
 isolation du bucket de stockage — et, depuis la phase 2 : compte à l'e-mail non vérifié privé de
@@ -155,7 +155,11 @@ de débit. La phase 3 ajoute la **section 18** : un garage ne réécrit ni ses m
 légales, ni sa franchise de TVA, ne s'octroie pas l'option premium et ne se réactive pas
 lui-même ; `garage_is_deletable()` et `garage_accounts()` ne répondent qu'à
 l'administrateur ; et ce que la règle de suppression annonce, la base le fait — un garage
-sans facture émise s'efface, un garage qui en a émis est refusé.
+sans facture émise s'efface, un garage qui en a émis est refusé. La phase 4 ajoute la
+**section 19** : un garage ne crée, ne modifie ni ne supprime sa ligne d'abonnement, et
+`register_payment()` lui est fermée ; côté administrateur, un renouvellement anticipé
+**ajoute** au temps restant, un abonnement échu repart d'aujourd'hui, et le premier paiement
+d'un garage en essai lève le plafond des 3 factures.
 
 **Un test de sécurité qui ne sait pas échouer ne prouve rien.** L'en-tête du fichier liste
 des mutations à injecter (retirer une policy, un trigger) : après toute modification du
@@ -259,9 +263,9 @@ ne doit jamais être appliqué à un projet Supabase.
 
 | Écran | Route | Ce qu'on y fait |
 |---|---|---|
-| Tableau de bord | `/admin` | garages, essais en cours, **fiches incomplètes**, notifications |
+| Tableau de bord | `/admin` | garages, essais, **fiches incomplètes**, **abonnements expirés / expirant sous 7 j**, notifications |
 | Garages | `/admin/garages` | liste, recherche (nom, e-mail, SIRET), filtre actif / désactivé |
-| Fiche garage | `/admin/garages/[id]` | identité légale, règlement, droits, compte, suppression |
+| Fiche garage | `/admin/garages/[id]` | identité légale, abonnement, paiements, droits, compte, suppression |
 | Comptes | `/admin/comptes` | comptes de connexion, réinitialisation de mot de passe |
 | Créer un compte | `/admin/comptes/nouveau` | garage + compte Auth pré-confirmé + abonnement |
 | Notifications | `/admin/notifications` | journal des événements |
@@ -280,6 +284,32 @@ Une fiche incomplète **s'enregistre quand même**. Le format est vérifié (14 
 SIRET, `FR` + 11 pour la TVA), la présence ne l'est pas : un garage peut être créé avant que
 toutes ses pièces soient réunies. Un bandeau, une pastille dans la liste et un compteur sur le
 tableau de bord signalent ce qui manque — la facture, elle, l'exigera.
+
+### Abonnement et paiements
+
+L'encaissement est **hors ligne** : l'administrateur reçoit un virement, un chèque ou des
+espèces, puis en consigne la trace depuis la fiche du garage. Aucun prestataire de paiement
+n'est branché.
+
+Un enregistrement fait **deux choses en une transaction** — une ligne dans `payments` et
+l'échéance de `subscriptions` repoussée — parce que `register_payment()` les tient ensemble.
+En deux appels séparés, un échec entre les deux laisserait soit un encaissement sans
+prolongation (le garage a payé et reste bloqué), soit l'inverse.
+
+La règle de date vit dans la fonction : **nouvelle échéance = `greatest(échéance,
+aujourd'hui) + N mois`**. Renouveler un abonnement encore valide ajoute au temps restant ;
+renouveler un abonnement échu repart d'aujourd'hui. Une date de fin personnalisée reste
+possible — mais jamais en même temps qu'une durée.
+
+L'historique affiche date d'encaissement (distincte de la saisie), montant, mode, durée
+ajoutée, échéance obtenue et qui l'a saisi.
+
+À l'échéance, l'espace du garage passe en **lecture seule** : `has_write_access()` devient
+faux, l'écriture métier est refusée par le RLS et `finalize_invoice()` refuse d'émettre. Le
+bandeau annonce « Abonnement expiré — contactez l'administrateur ». Sept jours avant, il
+prévient. **Le premier paiement d'un garage en essai met fin à l'essai** (trigger
+`subscriptions_end_trial_trg`) et lève le plafond des 3 factures ; le compteur d'essai est
+conservé tel quel, comme trace de ce qui a été consommé avant de payer.
 
 ### Activation, option premium, suppression
 
@@ -465,7 +495,8 @@ scripts/
       avec vérification d'e-mail, essai gratuit, limitation de débit
 - [x] **Phase 3** — Espace admin : fiches garages (identité légale, règlement, franchise
       de TVA), recherche et filtres, drapeau premium, activation, suppression conditionnelle
-- [ ] **Phase 4** — Abonnements, paiements, blocage en lecture seule
+- [x] **Phase 4** — Abonnements et paiements : encaissement hors ligne, prolongation,
+      historique, blocage en lecture seule à l'échéance
 - [ ] **Phase 5** — Éditeur de facture avec aperçu temps réel
 - [ ] **Phase 6** — Numérotation, finalisation, liste des factures
 - [ ] **Phase 7** — Catalogue de prestations, carnet de clients

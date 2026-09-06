@@ -74,6 +74,23 @@
 --     `is_admin()` du WHERE
 --       ouvre les comptes de connexion à tout garage -> section 18 hurle
 --
+-- Phase 4 — chaque ligne a été injectée et vérifiée :
+--   create or replace function register_payment(...) sans le bloc
+--     `if not is_admin() then raise ... end if;`
+--       ouvre l'encaissement à tout garage        -> section 19 hurle
+--   dans register_payment(), remplacer
+--     v_base := greatest(coalesce(v_current, current_date), current_date);
+--     par v_base := current_date;
+--       un renouvellement anticipé perd les jours
+--       restants                                   -> section 19 hurle
+--   create policy "subs_self" on subscriptions for all to authenticated
+--     using (garage_id = my_garage_id()) with check (garage_id = my_garage_id());
+--       ouvre l'abonnement à son garage            -> section 2 hurle
+--       (elle teste déjà la prolongation directe ; la 19 couvre ce que la 2
+--       ne voit pas — la fonction d'encaissement. Mesuré : en neutralisant
+--       l'assertion de la section 2, c'est la 19 qui hurle, sur « un garage a
+--       supprimé sa ligne d'abonnement ».)
+--
 --   PIÈGE : n'ouvrir que le GRANT sur `auth_rate_limit_hit` ne prouve RIEN.
 --   La fonction échoue quand même sur l'absence de droits table + RLS, le
 --   test annonce « bloqué » et il a raison — aucune frontière n'a bougé. Une
@@ -1108,6 +1125,213 @@ begin
 
   raise notice '18c. Suppression conditionnelle : effective  OK';
 end $$;
+
+-- ===========================================================================
+-- 19. Abonnements et paiements : le garage consulte, l'admin encaisse
+-- ===========================================================================
+-- Un garage qui pourrait toucher à sa propre ligne d'abonnement s'offrirait
+-- l'application. La frontière est donc double : les policies (déjà éprouvées
+-- en section 2 pour l'UPDATE direct) ET `register_payment()`, qui écrit dans
+-- `payments` et `subscriptions` hors RLS — elle doit donc refaire le contrôle
+-- elle-même, sans quoi elle devient la porte dérobée que les policies ferment.
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- Ce que le garage DOIT continuer à voir : son abonnement le concerne.
+do $$
+declare v_end date;
+begin
+  select end_date into v_end from subscriptions
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1';
+
+  if v_end is null then
+    raise exception 'Un garage ne voit plus son propre abonnement.';
+  end if;
+
+  if exists (select 1 from subscriptions
+             where garage_id <> 'a0000000-0000-0000-0000-0000000000a1') then
+    raise exception 'FUITE : un garage voit l''abonnement d''un autre.'
+      using errcode = 'F0001';
+  end if;
+
+  if exists (select 1 from payments
+             where garage_id <> 'a0000000-0000-0000-0000-0000000000a1') then
+    raise exception 'FUITE : un garage voit les paiements d''un autre.'
+      using errcode = 'F0001';
+  end if;
+end $$;
+
+-- Créer ou supprimer une ligne d'abonnement, pour soi comme pour le voisin.
+--
+-- PAS d'assertion « s'insérer un second abonnement » : `subscriptions.garage_id`
+-- est unique, donc l'INSERT échouerait de toute façon sur la contrainte, quelle
+-- que soit la policy. Elle donnerait une fausse confiance — le piège que
+-- l'en-tête de ce fichier décrit. On vise donc un garage qui n'a PAS encore de
+-- ligne (D, en essai), où seul le RLS peut refuser.
+select public.expect_blocked(
+  $q$ insert into subscriptions (garage_id, end_date)
+      values ('d0000000-0000-0000-0000-0000000000d1', current_date + 3650) $q$,
+  'un garage a créé l''abonnement d''un autre');
+
+select public.expect_blocked(
+  $q$ delete from subscriptions
+      where garage_id = 'a0000000-0000-0000-0000-0000000000a1' $q$,
+  'un garage a supprimé sa ligne d''abonnement');
+
+select public.expect_blocked(
+  $q$ update subscriptions set end_date = current_date + 3650
+      where garage_id = 'c0000000-0000-0000-0000-0000000000c1' $q$,
+  'un garage a prolongé l''abonnement d''un autre');
+
+-- Le cœur de la phase 4 : la fonction d'encaissement lui est fermée.
+-- Sans son `is_admin()`, tout ce qui précède ne servirait à rien.
+select public.expect_blocked(
+  $q$ select register_payment('a0000000-0000-0000-0000-0000000000a1', 0, 'especes',
+                              current_date, 'auto-prolongation', 12, null) $q$,
+  'un garage s''est prolongé lui-même via register_payment()');
+
+select public.expect_blocked(
+  $q$ select register_payment('c0000000-0000-0000-0000-0000000000c1', 0, 'especes',
+                              current_date, null, 12, null) $q$,
+  'un garage a prolongé un autre garage via register_payment()');
+
+do $$ begin raise notice '19a. Abonnement : hors de portée du garage OK'; end $$;
+
+-- ---------------------------------------------------------------------------
+-- Côté administrateur : la règle de prolongation
+-- ---------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"dddddddd-0000-0000-0000-000000000004","role":"authenticated"}';
+
+do $$
+declare
+  v_avant   date;
+  v_sub     subscriptions;
+  v_paiement payments;
+begin
+  -- A est encore valide (échéance à +30 jours). Renouveler doit AJOUTER au
+  -- temps restant : facturer d'avance ne doit pas coûter les jours déjà payés.
+  select end_date into v_avant from subscriptions
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1';
+
+  v_sub := register_payment('a0000000-0000-0000-0000-0000000000a1', 240.00, 'virement',
+                            current_date, 'Renouvellement annuel', 12, null);
+
+  if v_sub.end_date <> (v_avant + make_interval(months => 12))::date then
+    raise exception
+      'Renouvellement anticipé : % attendu, % obtenu (les jours restants ont été perdus).',
+      (v_avant + make_interval(months => 12))::date, v_sub.end_date;
+  end if;
+
+  -- La trace de l'encaissement doit exister, datée et attribuée.
+  select * into v_paiement from payments
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1'
+  order by created_at desc limit 1;
+
+  if v_paiement.amount <> 240.000
+     or v_paiement.method <> 'virement'
+     or v_paiement.months_added <> 12
+     or v_paiement.period_end <> v_sub.end_date
+     or v_paiement.created_by <> 'dddddddd-0000-0000-0000-000000000004' then
+    raise exception 'Le paiement enregistré ne décrit pas ce qui s''est passé : %', v_paiement;
+  end if;
+
+  raise notice '19b. Renouvellement anticipé : temps ajouté OK';
+end $$;
+
+do $$
+declare
+  v_sub subscriptions;
+begin
+  -- C est échu depuis un mois : on repart d'aujourd'hui, les jours perdus
+  -- ne se rattrapent pas.
+  if has_write_access('c0000000-0000-0000-0000-0000000000c1') then
+    raise exception 'Le garage C devrait être en lecture seule avant paiement.';
+  end if;
+
+  v_sub := register_payment('c0000000-0000-0000-0000-0000000000c1', 120.00, 'cheque',
+                            current_date, null, 6, null);
+
+  if v_sub.end_date <> (current_date + make_interval(months => 6))::date then
+    raise exception 'Abonnement échu : % attendu, % obtenu.',
+      (current_date + make_interval(months => 6))::date, v_sub.end_date;
+  end if;
+
+  -- Et l'espace se rouvre immédiatement : c'est tout l'objet de la phase.
+  if not has_write_access('c0000000-0000-0000-0000-0000000000c1') then
+    raise exception 'Le paiement n''a pas rouvert l''écriture pour le garage C.';
+  end if;
+
+  raise notice '19c. Abonnement échu : repart d''aujourd''hui OK';
+end $$;
+
+do $$
+declare
+  v_sub    subscriptions;
+  v_garage garages;
+begin
+  -- D est en essai gratuit ÉPUISÉ (3 factures finalisées en section 13) et
+  -- n'a aucune ligne d'abonnement. Le premier paiement doit le faire basculer
+  -- en « abonné » et lever le plafond : c'est l'articulation essai -> payant.
+  if finalize_block_reason('d0000000-0000-0000-0000-0000000000d1') <> 'trial_exhausted' then
+    raise exception 'Le garage D devrait être bloqué par son essai épuisé.';
+  end if;
+
+  v_sub := register_payment('d0000000-0000-0000-0000-0000000000d1', 300.00, 'especes',
+                            current_date - 2, 'Premier abonnement', 12, null);
+
+  select * into v_garage from garages where id = 'd0000000-0000-0000-0000-0000000000d1';
+
+  if v_garage.account_status <> 'subscribed' then
+    raise exception 'Le premier paiement n''a pas mis fin à l''essai (statut : %).',
+      v_garage.account_status;
+  end if;
+
+  if finalize_block_reason('d0000000-0000-0000-0000-0000000000d1') is not null then
+    raise exception 'Le plafond d''essai bloque encore un garage désormais abonné (%).',
+      finalize_block_reason('d0000000-0000-0000-0000-0000000000d1');
+  end if;
+
+  -- Le compteur d'essai n'est pas remis à zéro : il reste la trace de ce qui
+  -- a été consommé avant de payer.
+  if v_garage.trial_invoices_used <> 3 then
+    raise exception 'Le compteur d''essai a été réécrit (% factures).',
+      v_garage.trial_invoices_used;
+  end if;
+
+  raise notice '19d. Premier paiement : l''essai laisse la place OK';
+end $$;
+
+-- Une date de fin personnalisée reste possible ; les saisies incohérentes non.
+do $$
+declare v_sub subscriptions;
+begin
+  v_sub := register_payment('a0000000-0000-0000-0000-0000000000a1', null, 'autre',
+                            current_date, 'Geste commercial', null, current_date + 400);
+  if v_sub.end_date <> current_date + 400 then
+    raise exception 'Date de fin personnalisée non appliquée (%).', v_sub.end_date;
+  end if;
+end $$;
+
+select public.expect_blocked(
+  $q$ select register_payment('a0000000-0000-0000-0000-0000000000a1', 10, 'especes',
+                              current_date, null, 12, current_date + 400) $q$,
+  'une durée ET une date de fin ont été acceptées ensemble');
+
+select public.expect_blocked(
+  $q$ select register_payment('a0000000-0000-0000-0000-0000000000a1', 10, 'especes',
+                              current_date, null, null, null) $q$,
+  'un paiement sans durée ni date de fin a été accepté');
+
+select public.expect_blocked(
+  $q$ select register_payment('a0000000-0000-0000-0000-0000000000a1', -10, 'especes',
+                              current_date, null, 1, null) $q$,
+  'un montant négatif a été accepté');
+
+select public.expect_blocked(
+  $q$ select register_payment('a0000000-0000-0000-0000-0000000000a1', 10, 'especes',
+                              current_date, null, null, current_date - 1) $q$,
+  'une date de fin déjà passée a été acceptée');
+
+do $$ begin raise notice '19e. Saisies incohérentes : refusées        OK'; end $$;
 
 do $$
 begin

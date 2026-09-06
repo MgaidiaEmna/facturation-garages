@@ -24,6 +24,7 @@ import { ResetPasswordDialog } from "@/app/admin/comptes/reset-password-dialog";
 import { getGarageDetail } from "@/lib/admin/queries";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { DeleteGarageDialog } from "./delete-garage-dialog";
+import { SubscriptionCard } from "./subscription-card";
 import { GarageForm } from "./garage-form";
 import { GarageToggles } from "./garage-toggles";
 
@@ -117,11 +118,6 @@ export default async function GarageDetailPage(props: PageProps<"/admin/garages/
             </div>
           </dl>
 
-          <p className="text-sm text-muted-foreground">
-            L&apos;enregistrement d&apos;un abonnement et des paiements arrive en
-            phase 4 : cette date est ici en lecture seule.
-          </p>
-
           <Separator />
 
           <GarageToggles
@@ -131,6 +127,17 @@ export default async function GarageDetailPage(props: PageProps<"/admin/garages/
           />
         </CardContent>
       </Card>
+
+      {/* --- Abonnement et paiements --- */}
+      <SubscriptionCard
+        garageId={garage.id}
+        accountStatus={garage.accountStatus}
+        trialInvoicesUsed={garage.trialInvoicesUsed}
+        trialInvoiceLimit={garage.trialInvoiceLimit}
+        subscriptionEndDate={garage.subscriptionEndDate}
+        subscriptionStartDate={garage.subscriptionStartDate}
+        payments={garage.payments}
+      />
 
       {/* --- Fiche d'identité --- */}
       <Card>

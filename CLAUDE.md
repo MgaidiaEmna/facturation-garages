@@ -45,7 +45,7 @@ projet la désactive, plutôt que de laisser entrer un compte non vérifié.
 Deux preuves exécutables, à rejouer après toute modification du schéma :
 
 ```bash
-psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql   # frontières (18 sections)
+psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql   # frontières (19 sections)
 psql "$DATABASE_URL" -f supabase/tests/rate_limit.sql      # le limiteur compte juste
 ```
 
@@ -185,10 +185,37 @@ Deux fonctions SQL portent ce que le RLS seul ne sait pas dire à l'UI :
 |---|---|---|
 | `garage_is_deletable(g)` | aucune facture non-`draft` | `invoices_guard_trg` appliquera la même règle à la cascade ; la recalculer en TypeScript la ferait diverger — même principe que `finalize_block_message()` |
 | `garage_accounts(g)` | comptes de connexion + adresse réelle | l'adresse de connexion vit dans `auth.users`, hors PostgREST ; `garages.email` est une adresse de **contact**, modifiable, et les deux divergent dès la première correction |
+| `register_payment(...)` | encaissement **et** prolongation | deux écritures dans deux tables : en deux appels PostgREST elles ne partagent aucune transaction, et un échec entre les deux laisse un garage qui a payé mais reste bloqué |
 
 Les deux sont `security definer` et gardées par `is_admin()` **dans le corps** : un
 non-administrateur obtient `false` / zéro ligne, pas une erreur. Aucune n'ouvre un quatrième
 usage de la clé service role.
+
+### Abonnements et paiements
+
+Encaissement **hors ligne** ; aucun prestataire de paiement n'est branché. `register_payment()`
+consigne le paiement et repousse l'échéance dans **une seule transaction**.
+
+Règle de prolongation, écrite dans la fonction et nulle part ailleurs :
+**`greatest(échéance actuelle, aujourd'hui) + N mois`**. Un renouvellement anticipé ajoute au
+temps restant ; un abonnement échu repart d'aujourd'hui. Durée **ou** date personnalisée,
+jamais les deux — accepter les deux obligerait à choisir laquelle gagne, et ce choix
+silencieux surprendrait.
+
+Ne jamais recalculer cette date en TypeScript pour l'afficher : c'est la valeur renvoyée par
+la fonction qu'on montre. Deux calculs = deux vérités qui finiront par diverger.
+
+`payments.paid_on` date l'encaissement réel, `created_at` la saisie — un chèque du 3 est
+souvent enregistré le 7. `payments.period_end` garde l'échéance obtenue, pour que l'historique
+se lise sans recalcul de proche en proche.
+
+Le premier paiement d'un garage en essai le fait passer en `subscribed`
+(`subscriptions_end_trial_trg`) et lève le plafond des 3 factures. Le compteur d'essai n'est
+pas remis à zéro : il reste la trace de ce qui a été consommé avant de payer.
+
+`src/lib/admin/payment-schema.ts` (sans dépendance serveur) porte les modes de règlement, les
+durées rapides et `subscriptionStatus()` — `expiring` n'est pas un état de la base, seulement
+`active` dont l'échéance approche. La base ne connaît que la comparaison de dates.
 
 **Suppression d'un garage** : possible uniquement si `garage_is_deletable()` répond vrai. Le
 nom doit être retapé, et la comparaison se fait côté serveur **contre le nom lu en base** —
