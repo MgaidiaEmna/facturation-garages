@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
   meta: { marginTop: 8, fontSize: 8, color: ZINC[600] },
   metaValeur: { color: ZINC[900], fontFamily: "Helvetica-Bold" },
 
-  client: { marginTop: 22, alignItems: "flex-end" },
+  client: { marginTop: 22, alignItems: "flex-start" },
   clientBloc: { width: "58%" },
   surtitre: {
     fontSize: 7,
@@ -159,6 +159,13 @@ const styles = StyleSheet.create({
     lineHeight: 1.55,
   },
   mentionForte: { color: ZINC[900], fontFamily: "Helvetica-Bold", marginBottom: 3 },
+  mentionIdentite: {
+    color: ZINC[900],
+    fontFamily: "Helvetica-Bold",
+    marginBottom: 5,
+    lineHeight: 1.45,
+  },
+  mentionAbsente: { color: ZINC[400], marginBottom: 5 },
 
   pied: {
     position: "absolute",
@@ -225,10 +232,12 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
               <Image style={styles.logo} src={seller.logoUrl} />
             ) : null}
             <Text style={styles.vendeurNom}>{pdfSafe(seller.name)}</Text>
-            {seller.identityLines.length === 0 ? (
-              <Text style={styles.vendeurAbsent}>Identité légale incomplète.</Text>
+            {/* L'adresse du siège, et rien d'autre : les mentions légales
+                d'identité sont rassemblées en pied de page. */}
+            {seller.headerLines.length === 0 ? (
+              <Text style={styles.vendeurAbsent}>Adresse du siège non renseignée.</Text>
             ) : (
-              seller.identityLines.map((ligne) => (
+              seller.headerLines.map((ligne) => (
                 <Text key={ligne} style={styles.vendeurLigne}>
                   {pdfSafe(ligne)}
                 </Text>
@@ -375,6 +384,19 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
 
         {/* ---------- Mentions légales obligatoires ---------- */}
         <View style={styles.mentions}>
+          {/* Identité légale du vendeur : descendue de l'en-tête, jamais
+              retirée. Le Code de commerce l'exige sur la facture, pas en haut
+              de la facture. */}
+          {seller.legalIdentityLines.length > 0 ? (
+            <Text style={styles.mentionIdentite}>
+              {pdfSafe(`${seller.name} — ${seller.legalIdentityLines.join(" · ")}`)}
+            </Text>
+          ) : (
+            <Text style={styles.mentionAbsente}>
+              Mentions légales du vendeur incomplètes.
+            </Text>
+          )}
+
           {legalMentions.vatExempt ? (
             <Text style={styles.mentionForte}>{pdfSafe(legalMentions.vatExempt)}</Text>
           ) : null}

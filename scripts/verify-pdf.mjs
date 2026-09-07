@@ -18,7 +18,13 @@
  */
 
 import { Navigateur } from "./lib/navigateur.mjs";
-import { contientTexte, estA4, formatDePage, texteDuPdf } from "./lib/pdf-texte.mjs";
+import {
+  compacter,
+  contientTexte,
+  estA4,
+  formatDePage,
+  texteDuPdf,
+} from "./lib/pdf-texte.mjs";
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const API = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
@@ -258,6 +264,21 @@ async function main() {
 
   check("aucune mention de brouillon sur une facture émise", !contient("BROUILLON"));
 
+  // --- La DISPOSITION, pas seulement la présence ---
+  // Le texte est extrait dans l'ordre de dessin : si le SIRET vient après le
+  // total, c'est qu'il est en pied de page. Vérifier la seule présence
+  // laisserait passer un retour silencieux à l'ancien en-tête.
+  const compact = compacter(pdf.texte);
+  const posSiret = compact.indexOf(compacter("SIRET 81234567800012"));
+  const posTotal = compact.indexOf(compacter("Total TTC"));
+  const posAdresse = compact.indexOf(compacter("24 avenue des Frères Lumière"));
+  check("l'adresse du siège est en tête",
+    posAdresse >= 0 && posAdresse < posTotal, `adresse ${posAdresse} / total ${posTotal}`);
+  check("les mentions légales d'identité sont en PIED, après les totaux",
+    posSiret > posTotal, `SIRET ${posSiret} / total ${posTotal}`);
+  check("le SIRET ne figure plus dans l'en-tête",
+    posSiret > posAdresse, `SIRET ${posSiret} / adresse ${posAdresse}`);
+
   // --- Le piège des espaces fines ---
   // `Intl` sépare les milliers par une espace fine insécable, absente de
   // WinAnsi. Si elle passait telle quelle, le montant sortirait troué.
@@ -272,6 +293,37 @@ async function main() {
   check("les mêmes totaux sont à l'écran et sur le papier",
     montants.every((m) => page.body.includes(m) && contientTexte(pdf.texte, m)),
     montants.filter((m) => !page.body.includes(m)).join(", "));
+
+  // La disposition doit être la même des deux côtés : c'est tout l'objet de
+  // `document.ts`. Un rendu qui bougerait sans l'autre serait un bug.
+  //
+  // On compare les positions DANS LE SEUL <article> de la facture. Mesurées
+  // sur la page entière, elles ne veulent rien dire : le corps contient à la
+  // fois le HTML rendu et la charge utile RSC, où les mêmes chaînes
+  // réapparaissent dans un autre ordre. Deux versions de cette assertion sont
+  // passées « au vert » pour cette mauvaise raison avant que je m'en aperçoive.
+  const debutDoc = page.body.indexOf("<article");
+  const document = page.body.slice(debutDoc, page.body.indexOf("</article>", debutDoc));
+
+  const ecranSiret = document.indexOf("SIRET 81234567800012");
+  const ecranTotal = document.indexOf("Total TTC");
+  const ecranAdresse = document.indexOf("Frères Lumière");
+
+  check("le document est bien isolé du reste de la page",
+    debutDoc > 0 && document.length > 500 && ecranTotal > 0,
+    `${document.length} caractères`);
+  check("à l'écran aussi, les mentions d'identité sont sous les totaux",
+    ecranSiret > ecranTotal, `SIRET ${ecranSiret} / total ${ecranTotal}`);
+  check("à l'écran aussi, l'adresse du siège est en tête",
+    ecranAdresse >= 0 && ecranAdresse < ecranTotal,
+    `adresse ${ecranAdresse} / total ${ecranTotal}`);
+  check("le bloc client vient avant le tableau des prestations",
+    document.indexOf("Facturé à") < document.indexOf("DÉSIGNATION") ||
+      document.indexOf("Facturé à") < document.indexOf("Désignation"));
+  check("les mêmes mentions légales figurent des deux côtés",
+    ["RCS Lyon", "FR12812345678", "SARL"].every(
+      (m) => page.body.includes(m) && contientTexte(pdf.texte, m),
+    ));
 
   // -------------------------------------------------------------------------
   section("4. Le bouton Imprimer sert le MÊME document");

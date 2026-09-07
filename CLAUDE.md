@@ -392,6 +392,22 @@ rendu**.
 | `components/invoice/invoice-pdf.tsx` | mise en page PDF (`server-only`) |
 | `lib/invoice/pdf-filename.ts` | `Facture_{numéro}_{client}.pdf` et `Content-Disposition` |
 
+**Disposition du document**, décidée une fois dans `document.ts` :
+
+| Zone | Contenu |
+|---|---|
+| En-tête, à gauche | logo, dénomination, **adresse du siège seulement** (`seller.headerLines`) |
+| En-tête, à droite | « FACTURE », numéro, date d'émission, date de prestation |
+| Sous l'en-tête, à gauche | bloc client « Facturé à » |
+| Corps | tableau des prestations, puis totaux et ventilation de TVA |
+| **Pied** | `seller.legalIdentityLines` — forme juridique + capital, SIRET, RCS + greffe, n° de TVA, contact — puis règlement/échéance, pénalités, indemnité 40 €, IBAN/BIC, et l'art. 293 B en franchise |
+
+Les mentions d'identité sont **descendues, jamais retirées** : le Code de
+commerce les exige sur la facture, pas en haut de la facture. `verify:pdf`
+vérifie leur présence ET leur position — dans le PDF comme à l'écran — parce
+que la seule présence laisserait passer un retour silencieux à l'ancien
+en-tête.
+
 **`buildInvoiceDocument()` est la parade à la divergence.** Ordre des lignes d'identité du
 vendeur, texte des mentions légales, taux de pénalités substitué, calcul de l'échéance : tout
 cela est décidé une fois, dans le modèle. Une mention ajoutée au modèle apparaît des deux

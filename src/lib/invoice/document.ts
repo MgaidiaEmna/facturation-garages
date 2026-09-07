@@ -71,10 +71,25 @@ export interface DocumentSeller {
    */
   logoUrl: string | null;
   /**
-   * Identité légale ligne à ligne, DANS L'ORDRE D'IMPRESSION. Vide quand la
-   * fiche n'a rien : c'est au rendu de le signaler, pas au modèle de mentir.
+   * Ce qui s'imprime EN TÊTE, sous le nom : l'adresse du siège, et rien
+   * d'autre. Un en-tête de facture doit se lire d'un coup d'œil — qui émet,
+   * à qui, quand, pour combien.
    */
-  identityLines: string[];
+  headerLines: string[];
+  /**
+   * Les mentions d'identité obligatoires, imprimées EN PIED : SIRET, forme
+   * juridique et capital, RCS et ville du greffe, n° de TVA
+   * intracommunautaire, contact.
+   *
+   * Déplacées, jamais retirées. Le Code de commerce les exige sur la facture,
+   * pas en haut de la facture — mais il les exige. Un rendu qui les omettrait
+   * produirait un document non conforme, et c'est ce modèle qui empêche l'un
+   * des deux rendus de les oublier tout seul.
+   *
+   * Vide quand la fiche n'a rien : c'est au rendu de le signaler, pas au
+   * modèle de mentir.
+   */
+  legalIdentityLines: string[];
   vatExempt: boolean;
   paymentTermDays: number;
 }
@@ -159,14 +174,25 @@ function addDays(isoDate: string, days: number): string {
 }
 
 /**
- * Identité légale du vendeur, ligne à ligne, dans l'ordre de la facture.
+ * L'en-tête : l'adresse du siège, sous le nom du vendeur.
  *
- * L'ordre est une décision d'impression, pas un détail : il est ici pour que
- * l'écran et le papier ne le prennent pas chacun de leur côté.
+ * L'ordre et le contenu sont des décisions d'impression, pas des détails : ils
+ * sont ici pour que l'écran et le papier ne les prennent pas chacun de leur
+ * côté.
  */
-export function sellerIdentityLines(seller: SellerIdentity): string[] {
+export function sellerHeaderLines(seller: SellerIdentity): string[] {
+  return [seller.address].filter((part): part is string => Boolean(part));
+}
+
+/**
+ * Le pied : toutes les mentions d'identité que la loi impose.
+ *
+ * Rien n'est perdu en descendant ici — c'est la même liste qu'avant, moins
+ * l'adresse restée en tête. Les coordonnées bancaires, elles, sont déjà une
+ * mention de pied (`legalMentions.bankDetails`) et n'ont pas à être répétées.
+ */
+export function sellerLegalLines(seller: SellerIdentity): string[] {
   return [
-    seller.address,
     [seller.legalForm, seller.capital ? `capital ${seller.capital}` : null]
       .filter(Boolean)
       .join(" — ") || null,
@@ -203,7 +229,8 @@ export function buildInvoiceDocument(
     seller: {
       name: seller.name,
       logoUrl: input.logoUrl ?? null,
-      identityLines: sellerIdentityLines(seller),
+      headerLines: sellerHeaderLines(seller),
+      legalIdentityLines: sellerLegalLines(seller),
       vatExempt: seller.vatExempt,
       paymentTermDays: seller.paymentTermDays,
     },

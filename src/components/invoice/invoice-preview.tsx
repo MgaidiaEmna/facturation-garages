@@ -106,14 +106,17 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
           ) : null}
           <p className="text-lg font-semibold text-zinc-900">{seller.name}</p>
 
-          {seller.identityLines.length === 0 ? (
+          {/* L'adresse du siège, et rien d'autre : les mentions légales
+              d'identité sont rassemblées en pied de facture. Elles n'ont pas
+              disparu — voir le bloc « mentions » plus bas. */}
+          {seller.headerLines.length === 0 ? (
             <p className="text-[12px] text-zinc-400">
-              Identité légale incomplète — l&apos;administrateur la renseigne sur votre
-              fiche.
+              Adresse du siège non renseignée — l&apos;administrateur la complète sur
+              votre fiche.
             </p>
           ) : (
             <div className="space-y-0.5 text-[12px] text-zinc-600">
-              {seller.identityLines.map((ligne) => (
+              {seller.headerLines.map((ligne) => (
                 <p key={ligne} className="whitespace-pre-line">
                   {ligne}
                 </p>
@@ -166,8 +169,8 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
         </div>
       </header>
 
-      {/* ---------- Client ---------- */}
-      <section className="mt-6 flex justify-end">
+      {/* ---------- Client, sous l'en-tête, à gauche ---------- */}
+      <section className="mt-6">
         <div className="w-full max-w-[58%] space-y-0.5">
           <p className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
             Facturé à
@@ -295,14 +298,31 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
       ) : null}
 
       {/* ---------- Mentions légales ---------- */}
-      <footer className="mt-8 space-y-1.5 border-t border-zinc-300 pt-4 text-[11px] leading-relaxed text-zinc-600">
-        {legalMentions.vatExempt ? (
-          <p className="font-medium text-zinc-800">{legalMentions.vatExempt}</p>
-        ) : null}
-        <p>{legalMentions.paymentTerms}</p>
-        <p>{legalMentions.latePayment}</p>
-        <p>{legalMentions.recoveryIndemnity}</p>
-        {legalMentions.bankDetails ? <p>{legalMentions.bankDetails}</p> : null}
+      <footer className="mt-8 space-y-3 border-t border-zinc-300 pt-4 text-[11px] leading-relaxed text-zinc-600">
+        {/* Identité légale du vendeur : descendue de l'en-tête, jamais retirée.
+            Le Code de commerce l'exige sur la facture, pas en haut de la
+            facture. Sur une ligne, séparée par des points médians : c'est un
+            pied de page, il doit tenir en peu de hauteur. */}
+        {seller.legalIdentityLines.length > 0 ? (
+          <p className="font-medium text-zinc-800">
+            {seller.name} — {seller.legalIdentityLines.join(" · ")}
+          </p>
+        ) : (
+          <p className="text-zinc-400">
+            Mentions légales du vendeur incomplètes — l&apos;administrateur les
+            renseigne sur votre fiche.
+          </p>
+        )}
+
+        <div className="space-y-1.5">
+          {legalMentions.vatExempt ? (
+            <p className="font-medium text-zinc-800">{legalMentions.vatExempt}</p>
+          ) : null}
+          <p>{legalMentions.paymentTerms}</p>
+          <p>{legalMentions.latePayment}</p>
+          <p>{legalMentions.recoveryIndemnity}</p>
+          {legalMentions.bankDetails ? <p>{legalMentions.bankDetails}</p> : null}
+        </div>
       </footer>
     </article>
   );
