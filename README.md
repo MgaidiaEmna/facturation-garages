@@ -70,7 +70,13 @@ email*.
 | `npm run build` | Build de production |
 | `npm run start` | Serveur de production |
 | `npm run lint` | ESLint |
+| `npm test` | Tests unitaires (Vitest) — modules purs : calculs, mentions, validation |
+| `npm run test:watch` | Les mêmes, en continu |
+| `npm run test:coverage` | Les mêmes, avec la couverture |
+| `npm run test:e2e` | Parcours navigateur (Playwright, via le Chrome installé) |
 | `npm run db:seed` | Crée le compte super administrateur |
+| `npm run db:clean` | Retire les données laissées par les `verify:*` — **geste doux** |
+| `npm run db:reset` | Base vierge : migrations rejouées + seed — **efface TOUT** |
 | `npm run verify:auth` | Rejoue le parcours d'authentification de bout en bout |
 | `npm run verify:garages` | Rejoue l'espace d'administration des garages (phase 3) |
 | `npm run verify:factures` | Rejoue l'éditeur de facture (phase 5) |
@@ -79,6 +85,29 @@ email*.
 | `npm run verify:pdf` | Rejoue l'export PDF et lit le contenu des documents (phase 8) |
 | `npm run verify:logos` | Rejoue les logos, avec de VRAIS téléversements Storage (phase 9) |
 | `npx supabase start` / `stop` | Pile Supabase locale (Docker) |
+
+Les `verify:*` **nettoient derrière eux** : chacun retire, à la fin, les
+comptes et garages qu'il vient de créer. Si un ménage a échoué — Docker
+éteint, exécution interrompue — `npm run db:clean` rattrape tout ce qui porte
+une adresse en `@verif.test`, sans toucher à vos garages réels.
+
+Pour repartir vraiment de zéro : `npm run db:reset`. Il rejoue les migrations
+sur une base vide et recrée le super administrateur, mais **efface aussi vos
+propres données**. `db:clean` est le geste de tous les jours ; `db:reset`
+celui qu'on choisit délibérément.
+
+### Ce que chaque famille de tests prouve
+
+| | Prouve | Ne prouve pas |
+|---|---|---|
+| `npm test` | les modules purs : arrondis, TVA par taux, échéances, mentions légales, validation | rien de ce qui touche la base ou le réseau |
+| `npm run test:e2e` | l'angle mort des `verify:*` : boîtes de dialogue, interrupteurs, aperçu temps réel | les frontières |
+| `npm run verify:*` | le câblage sur l'application réellement lancée, sans JavaScript | ce qui n'existe qu'après exécution du script |
+| `rls_isolation.sql` | les frontières entre garages, en SQL | que les écrans soient branchés dessus |
+
+Aucune ne remplace les autres. `npm run test:e2e` exige Google Chrome
+installé : Playwright pilote le navigateur de la machine plutôt que de
+télécharger un Chromium de 200 Mo.
 
 ## Base de données
 
@@ -639,5 +668,7 @@ scripts/
       brouillon filigrané, structure prête pour Factur-X
 - [x] **Phase 9** — Logos : assignés par l'admin pour un garage standard, bibliothèque et
       sélecteur par facture pour un compte premium, logo gelé sur les factures émises
-- [ ] **Phase 10** — Finitions, tests d'isolation RLS, accessibilité
+- [x] **Phase 10** — Finitions et fiabilité : ménage automatique des données de
+      vérification, framework de test JS (Vitest + Playwright), frontières
+      d'erreur, lien d'évitement au clavier
 - [ ] **Phase 11** — Déploiement GitHub + Vercel

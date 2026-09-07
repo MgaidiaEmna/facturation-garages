@@ -27,6 +27,7 @@ const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL;
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
 
 import { Navigateur } from "./lib/navigateur.mjs";
+import { nettoyerRun } from "./lib/nettoyage.mjs";
 
 if (!ANON || !SERVICE || !ADMIN_EMAIL || !ADMIN_PASSWORD) {
   console.error(
@@ -438,7 +439,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error("\nInterruption :", error);
-  process.exit(1);
-});
+// Le ménage passe APRÈS le bilan et ne touche jamais au code de sortie :
+// une vérification ne doit pas passer au rouge parce que la corbeille est
+// pleine. Il ne retire que les comptes en `<préfixe>-<run>@verif.test`,
+// donc exactement ce que CETTE exécution a créé.
+main()
+  .catch((error) => {
+    console.error("\nInterruption :", error);
+    process.exitCode = 1;
+  })
+  .finally(() => nettoyerRun(RUN));

@@ -12,7 +12,16 @@ npm run lint     # ESLint
 ```
 
 ```bash
+npm test                # tests unitaires (Vitest) — modules purs
+npm run test:watch      # les mêmes, en continu
+npm run test:coverage   # avec la couverture
+npm run test:e2e        # parcours navigateur (Playwright, Chrome de la machine)
+```
+
+```bash
 npm run db:seed         # crée le compte super administrateur (idempotent)
+npm run db:clean        # retire les données des verify:* (geste DOUX)
+npm run db:reset        # base vierge : migrations rejouées + seed (TOUT est effacé)
 npm run verify:auth     # parcours d'authentification de bout en bout
 npm run verify:garages  # espace d'administration des garages (phase 3)
 npm run verify:factures # éditeur de facture (phase 5)
@@ -66,7 +75,51 @@ PostgreSQL local (il reconstitue les rôles et les schémas `auth` / `storage`) 
 Sous Windows, exporter `PGCLIENTENCODING=UTF8` avant `psql` : sans cela les accents des messages
 sont mal décodés et les assertions sur les libellés échouent à tort.
 
-Aucun framework de test JS n'est installé (prévu Phase 10).
+### Ce que chaque famille de tests prouve — et ce qu'elle ne prouve pas
+
+| | Prouve | Ne prouve pas |
+|---|---|---|
+| `npm test` (Vitest) | les modules PURS : arrondis, ventilation de TVA, échéances, mentions légales, validation zod, formatage | rien de ce qui touche la base ou le réseau |
+| `npm run test:e2e` (Playwright) | l'ANGLE MORT des `verify:*` — boîtes de dialogue Radix, interrupteurs, aperçu temps réel | les frontières, et tout ce qui n'a pas de JavaScript |
+| `verify:*` | le CÂBLAGE sur l'application réellement lancée, sans JavaScript | ce qui n'existe qu'après exécution du script |
+| `rls_isolation.sql` | les FRONTIÈRES, en SQL | que les écrans soient branchés dessus |
+
+Aucune ne remplace les autres, et c'est voulu. Réécrire les frontières en
+JavaScript avec des bouchons ne prouverait que le comportement des bouchons ;
+refaire en Playwright ce que les `verify:*` couvrent déjà n'ajouterait qu'un
+second endroit à maintenir.
+
+**Playwright pilote le Chrome de la machine** (`channel: "chrome"`), pas un
+Chromium téléchargé : ~200 Mo de moins, et le navigateur réellement utilisé
+pour regarder l'application.
+
+### Les scripts `verify:*` nettoient derrière eux
+
+Chaque exécution appelle `nettoyerRun(RUN)` dans un `finally`, APRÈS le bilan.
+Elle ne retire que les comptes en `<préfixe>-<run>@verif.test` — donc
+exactement ce que CETTE exécution a créé — et ne touche jamais au code de
+sortie : une vérification ne doit pas passer au rouge parce que la corbeille
+est pleine.
+
+Le ménage passe par `supabase/tests/purge_donnees_verification.sql`, exécuté
+dans le conteneur Postgres **en `supabase_admin`**. Trois raisons, toutes
+subies :
+
+- `invoices_guard_trg` rend une facture émise indestructible — conservation
+  légale — donc un garage qui a émis ne se supprime ni par l'écran
+  d'administration, ni par la clé service role. Il faut mettre les gardes en
+  sourdine le temps d'une transaction ;
+- `storage.objects` porte `protect_objects_delete` et n'appartient pas à
+  `postgres` : seul un superutilisateur peut le neutraliser ;
+- `admin_notifications.garage_id` est en `no action`, donc les notifications
+  partent AVANT les garages.
+
+Ce fichier est **réservé au local** et n'est jamais appliqué à un projet
+distant : sa raison d'être est de contourner une protection légale.
+
+`npm run db:clean` purge tout ce qui porte `@verif.test` et balaie les objets
+Storage orphelins ; `npm run db:reset` rejoue les migrations sur une base
+vierge — il efface TOUT, y compris vos garages réels.
 
 ## Nature du projet
 

@@ -18,6 +18,7 @@
  */
 
 import { Navigateur } from "./lib/navigateur.mjs";
+import { nettoyerRun } from "./lib/nettoyage.mjs";
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const API = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
@@ -116,8 +117,10 @@ async function main() {
 
   page = await garage.get("/app/factures/nouveau");
   check("l'éditeur répond", page.status === 200, `HTTP ${page.status}`);
+  // Le titre s'écrit « Facture » depuis le passage au style moderne — c'est le
+  // mot qui identifie la pièce, sa casse n'est qu'une affaire de style.
   check("l'aperçu est rendu dès le premier octet",
-    page.body.includes("FACTURE") && page.body.includes("Brouillon"));
+    page.body.includes("Facture") && page.body.includes("Brouillon"));
   check("il annonce que le numéro viendra à l'émission",
     page.body.includes("attribué à l&#x27;émission") || page.body.includes("attribué à l'émission"));
   check("les mentions légales françaises y figurent",
@@ -241,7 +244,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error("\nInterruption :", error);
-  process.exit(1);
-});
+// Le ménage passe APRÈS le bilan et ne touche jamais au code de sortie :
+// une vérification ne doit pas passer au rouge parce que la corbeille est
+// pleine. Il ne retire que les comptes en `<préfixe>-<run>@verif.test`,
+// donc exactement ce que CETTE exécution a créé.
+main()
+  .catch((error) => {
+    console.error("\nInterruption :", error);
+    process.exitCode = 1;
+  })
+  .finally(() => nettoyerRun(RUN));

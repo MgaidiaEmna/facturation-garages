@@ -36,6 +36,19 @@ export function AppShell({
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-muted/40">
+      {/*
+        Lien d'évitement : le premier élément focalisable de la page, invisible
+        tant qu'il n'a pas le focus. Sans lui, quelqu'un qui navigue au clavier
+        retraverse l'en-tête, les cinq onglets et le bouton de déconnexion
+        AVANT d'atteindre le contenu — sur chaque écran, à chaque fois.
+      */}
+      <a
+        href="#contenu"
+        className="sr-only rounded-md bg-brand-dark px-4 py-2 text-sm font-medium text-white focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50"
+      >
+        Aller au contenu
+      </a>
+
       <header className="bg-brand text-white">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-4 px-6 py-3.5">
           <Link
@@ -58,7 +71,15 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-10">{children}</main>
+      {/* `tabIndex={-1}` : sans lui, le saut déplace le défilement mais pas le
+          FOCUS, et la tabulation suivante repartirait du haut de la page. */}
+      <main
+        id="contenu"
+        tabIndex={-1}
+        className="mx-auto w-full max-w-6xl flex-1 px-6 py-10 focus:outline-none"
+      >
+        {children}
+      </main>
 
       <footer className="mx-auto w-full max-w-6xl px-6 pb-10">
         <p className="border-t pt-6 text-xs leading-relaxed text-muted-foreground">

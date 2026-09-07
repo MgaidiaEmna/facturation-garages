@@ -7,7 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
     "db:seed": "node --env-file-if-exists=.env.local scripts/seed-admin.mts",
+    "db:clean": "node scripts/db-clean.mjs",
+    "db:reset": "npx supabase db reset && npm run db:seed",
     "verify:auth": "node --env-file-if-exists=.env.local scripts/verify-auth-flow.mjs",
     "verify:garages": "node --env-file-if-exists=.env.local scripts/verify-admin-garages.mjs",
     "verify:factures": "node --env-file-if-exists=.env.local scripts/verify-invoice-editor.mjs",
@@ -40,13 +46,16 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^24.13.3",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.0.0"
   }
 }

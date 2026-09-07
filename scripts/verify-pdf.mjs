@@ -26,6 +26,7 @@ import {
   positionsVerticales,
   texteDuPdf,
 } from "./lib/pdf-texte.mjs";
+import { nettoyerRun } from "./lib/nettoyage.mjs";
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const API = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
@@ -535,7 +536,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error("\nInterruption :", error);
-  process.exit(1);
-});
+// Le ménage passe APRÈS le bilan et ne touche jamais au code de sortie :
+// une vérification ne doit pas passer au rouge parce que la corbeille est
+// pleine. Il ne retire que les comptes en `<préfixe>-<run>@verif.test`,
+// donc exactement ce que CETTE exécution a créé.
+main()
+  .catch((error) => {
+    console.error("\nInterruption :", error);
+    process.exitCode = 1;
+  })
+  .finally(() => nettoyerRun(RUN));

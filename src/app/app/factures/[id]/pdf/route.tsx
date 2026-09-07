@@ -50,6 +50,29 @@ const introuvable = () =>
     headers: { "content-type": "text/plain; charset=utf-8" },
   });
 
+/**
+ * L'échec du RENDU, dit en français et sans détail technique.
+ *
+ * Le rendu d'un PDF peut échouer là où rien d'autre n'échoue : une image de
+ * logo tronquée ou dans un format que `@react-pdf/renderer` ne décode pas
+ * suffit à faire lever `renderToBuffer`. Sans garde, Next répond une page
+ * d'erreur brute — et comme la requête attend un `application/pdf`, le
+ * navigateur affiche au mieux du charabia, au pire rien.
+ *
+ * On répond donc un 500 en TEXTE, qui dit quoi faire. Le détail de
+ * l'exception reste dans les journaux du serveur : sur une application
+ * multi-locataires, un message d'erreur brut nomme volontiers une table ou
+ * une valeur.
+ */
+const renduImpossible = () =>
+  new Response(
+    "Le PDF de cette facture n'a pas pu être produit.\n\n" +
+      "Si le garage a un logo, il est la cause la plus probable : seuls les " +
+      "formats PNG et JPEG sont lisibles par le générateur. Remplacez-le " +
+      "depuis la bibliothèque de logos, puis réessayez.\n",
+    { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
+  );
+
 export async function GET(
   request: Request,
   context: RouteContext<"/app/factures/[id]/pdf">,
@@ -73,7 +96,16 @@ export async function GET(
 
   if (!document) return introuvable();
 
-  const buffer = await renderToBuffer(<InvoicePdf document={document} />);
+  // Le seul endroit de cette route qui puisse lever pour une raison qui n'est
+  // ni une absence ni un refus : la fabrication du document elle-même.
+  let buffer: Buffer;
+  try {
+    buffer = await renderToBuffer(<InvoicePdf document={document} />);
+  } catch (error) {
+    console.error(`[pdf] rendu impossible pour la facture ${id} :`, error);
+    return renduImpossible();
+  }
+
   const nom = nomFichierFacture(document.number, document.client.name);
 
   // `?impression=1` sert le MÊME document, mais à l'écran plutôt qu'au

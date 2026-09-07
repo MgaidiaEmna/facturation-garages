@@ -44,6 +44,7 @@
  */
 
 import { Navigateur, decode } from "./lib/navigateur.mjs";
+import { nettoyerRun } from "./lib/nettoyage.mjs";
 
 const APP = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const API = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
@@ -489,8 +490,14 @@ async function main() {
   console.log("  ✓ Parcours d'authentification : toutes les vérifications passent\n");
 }
 
-main().catch((error) => {
-  console.error(`\n  ✗ ${error instanceof Error ? error.message : String(error)}\n`);
-  if (error instanceof Error && error.cause) console.error(error.cause);
-  process.exit(1);
-});
+// Le ménage passe APRÈS le bilan et ne touche jamais au code de sortie :
+// une vérification ne doit pas passer au rouge parce que la corbeille est
+// pleine. Il ne retire que les comptes en `<préfixe>-<run>@verif.test`,
+// donc exactement ce que CETTE exécution a créé.
+main()
+  .catch((error) => {
+    console.error(`\n  ✗ ${error instanceof Error ? error.message : String(error)}\n`);
+    if (error instanceof Error && error.cause) console.error(error.cause);
+    process.exitCode = 1;
+  })
+  .finally(() => nettoyerRun(RUN));
