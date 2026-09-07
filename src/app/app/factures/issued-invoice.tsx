@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { ArrowLeft, Download, Lock, Printer } from "lucide-react";
+import { ArrowLeft, Lock } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InvoicePreview } from "@/components/invoice/invoice-preview";
+import { DownloadPdfButton, PrintPdfButton } from "./pdf-buttons";
 import { formatAmount, formatDate, formatDateTime } from "@/lib/format";
 import type { IssuedInvoice } from "@/lib/invoice/types";
 import { DEFAULT_LOCALE, type LocaleCode } from "@/lib/locale";
@@ -54,32 +55,23 @@ export function IssuedInvoiceView({
             </span>
           </span>
 
-          {/* Deux liens, aucun JavaScript : le PDF est produit par un Route
-              Handler, donc les deux actions fonctionnent même si le script n'a
-              pas chargé.
+          {/* Deux liens enrichis : l'élément reste un `<a href>`, donc le
+              téléchargement fonctionne sans JavaScript. Avec, on montre que
+              ça travaille et on transforme un échec en phrase — c'est là
+              qu'atterrissait le « Failed to fetch » de la console.
 
-              « Imprimer » sert EXACTEMENT le même document, mais `inline` : le
-              lecteur PDF du navigateur s'ouvre et l'impression part de là. On
-              ne réinvente pas une mise en page d'impression — il n'y aurait
-              plus un document de référence, mais deux à garder d'accord. */}
-          <Button asChild variant="outline">
-            <a
-              href={`/app/factures/${invoice.id}/pdf?impression=1`}
-              target="_blank"
-              rel="noreferrer"
-              title="Ouvre la facture dans un nouvel onglet, prête à imprimer."
-            >
-              <Printer aria-hidden />
-              Imprimer
-            </a>
-          </Button>
+              « Imprimer » sert EXACTEMENT le même document, mais `inline` :
+              le lecteur PDF du navigateur s'ouvre et l'impression part de là.
+              On ne réinvente pas une mise en page d'impression. */}
+          <PrintPdfButton
+            href={`/app/factures/${invoice.id}/pdf?impression=1`}
+            nomParDefaut={`Facture_${invoice.number}.pdf`}
+          />
 
-          <Button asChild>
-            <a href={`/app/factures/${invoice.id}/pdf`}>
-              <Download aria-hidden />
-              Télécharger le PDF
-            </a>
-          </Button>
+          <DownloadPdfButton
+            href={`/app/factures/${invoice.id}/pdf`}
+            nomParDefaut={`Facture_${invoice.number}.pdf`}
+          />
         </div>
       </div>
 
