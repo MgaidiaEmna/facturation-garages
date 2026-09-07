@@ -388,6 +388,7 @@ rendu**.
 | Fichier | Rôle |
 |---|---|
 | `lib/invoice/document.ts` | modèle sémantique — **pur**, consommé par les DEUX rendus |
+| `lib/invoice/theme.ts` | palette du document — **pure**, consommée par les DEUX rendus |
 | `components/invoice/invoice-preview.tsx` | mise en page HTML |
 | `components/invoice/invoice-pdf.tsx` | mise en page PDF (`server-only`) |
 | `lib/invoice/pdf-filename.ts` | `Facture_{numéro}_{client}.pdf` et `Content-Disposition` |
@@ -417,6 +418,31 @@ Les coordonnées bancaires ne sont plus une mention de règlement mais une
 mention d'identité (colonne droite du pied) : elles disent qui est payé autant
 que par où. `legalMentions` ne porte donc plus `bankDetails`.
 
+**Le DOCUMENT a sa propre couleur — un orange vif — et l'application reste
+bleu marine.** Ce n'est pas une incohérence : la facture est lue hors de
+l'application, souvent imprimée, détachée de l'écran qui l'a produite. Elle a
+donc droit à une identité propre. Les deux palettes vivent dans deux fichiers
+qui ne se croisent jamais : `globals.css` (`--brand`, l'interface) et
+`lib/invoice/theme.ts` (`invoiceTheme`, le document).
+
+Pourquoi la palette du document est en TypeScript et non en CSS : le PDF ne lit
+pas de CSS. Un `StyleSheet` de `@react-pdf/renderer` veut des chaînes de
+couleur en JavaScript ; une variable CSS ne lui parviendrait jamais. Un module
+PUR importé par les deux rendus est la seule façon d'être sûr que l'écran et le
+papier emploient le même orange — exactement l'argument qui a fait naître
+`document.ts` pour le contenu. C'est aussi pourquoi `invoice-preview.tsx` pose
+ses couleurs en `style={{ … }}` et non en classes Tailwind : une classe serait
+invisible du côté PDF. Tailwind garde tout le reste — grille, espacements,
+responsive.
+
+Deux règles de contraste écrites dans `theme.ts`, à ne pas défaire :
+`accent` (#ea5b0c, 3,5:1 sur blanc) ne porte du texte que s'il est GRAND — la
+pastille du total TTC est à 14 pt gras en PDF et 19 px semi-gras à l'écran ;
+le petit texte accentué prend `accentTexte` (#c2410c, 5,1:1). Et les mentions
+de règlement, allégées, sont en `attenue` (4,8:1) et **jamais** en `discret`
+(2,5:1) : une mention que la loi impose et qu'on ne peut pas lire n'est pas
+une mention.
+
 **`buildInvoiceDocument()` est la parade à la divergence.** Ordre des lignes d'identité du
 vendeur, texte des mentions légales, taux de pénalités substitué, calcul de l'échéance : tout
 cela est décidé une fois, dans le modèle. Une mention ajoutée au modèle apparaît des deux
@@ -436,6 +462,13 @@ garage par cette route : c'est la seule assertion qui tombe si la garde dispara�
 **Une facture émise n'est jamais recalculée** : totaux de la base, identité du vendeur lue dans
 `seller_snapshot`, échéance gelée. Un brouillon, lui, porte un filigrane « BROUILLON », n'a pas
 de numéro, et s'ouvre `inline` là où la facture émise se télécharge (`attachment`).
+
+**Piège à connaître : les caractères invisibles d'une regex.** `pdfSafe()`
+s'écrit `/[\u202f\u00a0]/g`, en ÉCHAPPEMENTS. Écrite avec les caractères
+littéraux — ce qu'elle était — elle se fait remplacer par deux espaces
+ordinaires au premier copier-coller, et la parade devient un no-op silencieux
+que rien ne signale à la lecture. C'est arrivé pendant la refonte du style, et
+seul `verify:pdf` l'a rattrapé.
 
 **Piège à connaître : les espaces fines insécables.** `Intl.NumberFormat('fr-FR')` sépare les
 milliers par U+202F, absent de l'encodage WinAnsi des polices standard du PDF — le montant
@@ -647,6 +680,11 @@ La couleur de marque a **une seule source**, dans `src/app/globals.css` :
 | `--brand` | `#1f3a5c` — `oklch(0.345 0.069 255.1)` | accent principal, reprend la facture d'origine |
 | `--brand-dark` | `#142943` — `oklch(0.278 0.056 254.8)` | survols et texte accentué |
 | `--primary` | `var(--brand)` | tout ce que shadcn en dérive suit |
+
+Une seule exception, délimitée : le **document facture** (`invoice-preview.tsx`
+et `invoice-pdf.tsx`) porte sa propre palette orange, définie dans
+`lib/invoice/theme.ts` — voir « Export PDF ». Elle ne déborde nulle part
+ailleurs : aucun autre fichier n'importe `invoiceTheme`.
 
 **Ne jamais écrire une couleur en dur dans une page.** `--primary` référence `--brand`, et
 boutons, badges, anneaux de focus, interrupteurs et liens en découlent : repeindre

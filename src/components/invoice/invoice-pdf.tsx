@@ -5,6 +5,7 @@ import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/render
 import { formatAmount, formatDate, formatVatRate } from "@/lib/format";
 import { getLocale } from "@/lib/locale";
 import type { InvoiceDocument } from "@/lib/invoice/document";
+import { invoiceTheme as C } from "@/lib/invoice/theme";
 
 /**
  * La facture, en PDF A4.
@@ -15,12 +16,21 @@ import type { InvoiceDocument } from "@/lib/invoice/document";
  * Les primitives de `@react-pdf/renderer` n'ont rien de commun avec le HTML :
  * ce fichier ne peut pas réutiliser `invoice-preview.tsx`. Ce qu'il réutilise,
  * c'est le MODÈLE — `buildInvoiceDocument()` — d'où viennent l'ordre des
- * lignes d'identité, le texte des mentions légales et le calcul de l'échéance.
- * Seule la mise en page est écrite ici. Une mention ajoutée au modèle apparaît
- * des deux côtés ; une mention ajoutée ici seulement serait un bug.
+ * lignes d'identité, le texte des mentions légales et le calcul de l'échéance ;
+ * et la PALETTE — `invoiceTheme` — d'où vient chaque couleur. Seule la mise en
+ * page est écrite ici. Une mention ajoutée au modèle apparaît des deux côtés ;
+ * une mention ajoutée ici seulement serait un bug.
  *
  * Les montants passent par `formatAmount()`, la même fonction qu'à l'écran :
  * un total imprimé différemment de l'aperçu serait pire qu'un total absent.
+ *
+ * ---------------------------------------------------------------------------
+ * L'ORANGE EST CELUI DU DOCUMENT, PAS CELUI DE L'APPLICATION
+ * ---------------------------------------------------------------------------
+ * L'interface reste bleu marine. La facture a sa propre identité, parce
+ * qu'elle est lue hors de l'application, souvent sur papier, détachée de
+ * l'écran qui l'a produite. Les deux palettes vivent dans deux fichiers
+ * distincts et ne se mélangent pas — voir `lib/invoice/theme.ts`.
  *
  * ---------------------------------------------------------------------------
  * LE PIÈGE DES ESPACES FINES
@@ -33,30 +43,26 @@ import type { InvoiceDocument } from "@/lib/invoice/document";
  * alourdirait chaque facture pour un problème de deux caractères.
  */
 
-/** Espaces fine et insécable ramenées à une espace ordinaire. */
+/**
+ * Espaces fine (U+202F) et insécable (U+00A0) ramenées à une espace ordinaire.
+ *
+ * Écrites en ÉCHAPPEMENTS, jamais en caractères littéraux : invisibles dans un
+ * éditeur, elles se font remplacer par de vraies espaces au premier copier-coller
+ * — et la parade devient un no-op silencieux. C'est arrivé.
+ */
 function pdfSafe(texte: string): string {
-  return texte.replace(/[  ]/g, " ");
+  return texte.replace(/[\u202f\u00a0]/g, " ");
 }
-
-const ZINC = {
-  900: "#18181b",
-  700: "#3f3f46",
-  600: "#52525b",
-  500: "#71717a",
-  400: "#a1a1aa",
-  300: "#d4d4d8",
-  200: "#e4e4e7",
-};
 
 const styles = StyleSheet.create({
   page: {
     paddingTop: 40,
-    paddingBottom: 56,
-    paddingHorizontal: 44,
-    fontSize: 9,
+    paddingBottom: 52,
+    paddingHorizontal: 42,
+    fontSize: 9.5,
     fontFamily: "Helvetica",
-    color: ZINC[900],
-    lineHeight: 1.5,
+    color: C.encre,
+    lineHeight: 1.55,
     flexDirection: "column",
   },
 
@@ -71,130 +77,136 @@ const styles = StyleSheet.create({
    */
   corps: { flexGrow: 1 },
 
-  entete: { flexDirection: "row", justifyContent: "space-between", gap: 24 },
+  // ---------------------------------------------------------------- en-tête
+  entete: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 24,
+  },
   enteteGauche: { flexGrow: 1, flexShrink: 1, maxWidth: "58%" },
   /** Le logo tient la droite ; il est le premier repère visuel du document. */
   enteteDroite: { flexShrink: 0, maxWidth: "40%", alignItems: "flex-end" },
-  filetEntete: { borderBottomWidth: 1, borderBottomColor: ZINC[300], paddingBottom: 14 },
 
   logo: { maxHeight: 76, maxWidth: 200, marginBottom: 6, objectFit: "contain" },
-  logoNom: { fontSize: 13, fontFamily: "Helvetica-Bold", textAlign: "right" },
-  vendeurNom: { fontSize: 11, fontFamily: "Helvetica-Bold", marginBottom: 2 },
-  vendeurLigne: { fontSize: 8.5, color: ZINC[700] },
-  vendeurAbsent: { fontSize: 8, color: ZINC[400] },
+  logoNom: { fontSize: 12, fontFamily: "Helvetica-Bold", textAlign: "right" },
 
-  titre: { fontSize: 18, fontFamily: "Helvetica-Bold", letterSpacing: 0.5 },
+  /** Grand, en accent : à 30 pt le seuil « grand texte » est largement tenu. */
+  titre: { fontSize: 30, fontFamily: "Helvetica-Bold", color: C.accent },
+  numero: { fontSize: 12, fontFamily: "Helvetica-Bold", marginTop: 1 },
+  numeroAbsent: { fontSize: 10, marginTop: 2, color: C.discret },
   etat: {
-    marginTop: 4,
+    marginTop: 5,
     alignSelf: "flex-start",
-    borderWidth: 1,
-    borderColor: ZINC[300],
-    borderRadius: 2,
+    backgroundColor: C.accentPale,
+    borderRadius: 9,
     paddingVertical: 2,
-    paddingHorizontal: 5,
+    paddingHorizontal: 7,
     fontSize: 7,
-    color: ZINC[500],
+    color: C.accentTexte,
     fontFamily: "Helvetica-Bold",
+    letterSpacing: 0.5,
   },
-  meta: { marginTop: 8, fontSize: 8, color: ZINC[600] },
-  metaValeur: { color: ZINC[900], fontFamily: "Helvetica-Bold" },
+  meta: { marginTop: 9, fontSize: 8.5, color: C.attenue },
+  metaValeur: { color: C.encre, fontFamily: "Helvetica-Bold" },
 
-  /** Vendeur et client CÔTE À CÔTE : deux colonnes, une seule ligne de lecture. */
-  parties: { marginTop: 22, flexDirection: "row", justifyContent: "space-between", gap: 24 },
-  partie: { width: "48%" },
+  // ------------------------------------------- vendeur et client, en regard
+  /** Deux cartouches arrondies, côte à côte : qui vend, à qui. */
+  parties: { marginTop: 24, flexDirection: "row", justifyContent: "space-between", gap: 14 },
+  carte: { width: "48.5%", backgroundColor: C.surface, borderRadius: 10, padding: 13 },
+  /** Le bloc client est teinté : c'est lui qu'on cherche des yeux en premier. */
+  carteClient: { width: "48.5%", backgroundColor: C.accentPale, borderRadius: 10, padding: 13 },
   surtitre: {
     fontSize: 7,
-    color: ZINC[500],
+    color: C.accentTexte,
     fontFamily: "Helvetica-Bold",
-    letterSpacing: 0.6,
-    marginBottom: 2,
+    letterSpacing: 1.3,
+    marginBottom: 4,
   },
-  clientNom: { fontFamily: "Helvetica-Bold" },
-  clientLigne: { color: ZINC[700] },
+  partieNom: { fontFamily: "Helvetica-Bold", fontSize: 11.5 },
+  partieLigne: { fontSize: 8.8, color: C.texte },
+  partieAbsente: { fontSize: 8.5, color: C.discret },
 
+  // ---------------------------------------------------------------- tableau
+  /** Aucun filet : ce sont les tuiles alternées qui tiennent les lignes. */
   table: { marginTop: 26 },
   tableEntete: {
     flexDirection: "row",
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: ZINC[300],
-    paddingVertical: 5,
+    paddingBottom: 7,
+    paddingHorizontal: 7,
     fontSize: 7,
-    color: ZINC[500],
+    color: C.accentTexte,
     fontFamily: "Helvetica-Bold",
-    letterSpacing: 0.4,
+    letterSpacing: 1.1,
   },
-  ligne: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: ZINC[200],
-    paddingVertical: 5,
-  },
-  colDesignation: { flexGrow: 1, flexShrink: 1, paddingRight: 6 },
-  colQte: { width: 38, textAlign: "right", paddingHorizontal: 4 },
-  colUnite: { width: 34, paddingHorizontal: 4 },
-  colPu: { width: 62, textAlign: "right", paddingHorizontal: 4 },
-  colTva: { width: 44, textAlign: "right", paddingHorizontal: 4 },
-  colTotal: { width: 68, textAlign: "right", paddingLeft: 6 },
-  cellule: { color: ZINC[700] },
-  celluleForte: { color: ZINC[900], fontFamily: "Helvetica-Bold" },
-  tableVide: { paddingVertical: 22, textAlign: "center", color: ZINC[400] },
+  ligne: { flexDirection: "row", paddingVertical: 8, paddingHorizontal: 7, borderRadius: 6 },
+  lignePaire: { backgroundColor: C.surface },
+  colDesignation: { flexGrow: 1, flexShrink: 1, paddingRight: 8, fontFamily: "Helvetica-Bold" },
+  colQte: { width: 36, textAlign: "right", paddingHorizontal: 3 },
+  colUnite: { width: 40, paddingHorizontal: 3 },
+  colPu: { width: 62, textAlign: "right", paddingHorizontal: 3 },
+  colTva: { width: 42, textAlign: "right", paddingHorizontal: 3 },
+  colTotal: { width: 68, textAlign: "right", paddingLeft: 6, fontFamily: "Helvetica-Bold" },
+  cellule: { color: C.texte },
+  tableVide: { paddingVertical: 24, textAlign: "center", color: C.discret },
 
+  // ----------------------------------------------------------------- totaux
   totaux: { marginTop: 18, alignItems: "flex-end" },
-  totauxBloc: { width: 220 },
-  totalRang: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 1 },
-  totalLibelle: { color: ZINC[600] },
-  totalValeur: { color: ZINC[900] },
+  totauxBloc: { width: 248 },
+  totalRang: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
+  totalLibelle: { color: C.attenue },
+  totalValeur: { color: C.encre },
+  /**
+   * La pastille orange. 14 pt gras : au-delà du seuil « grand texte » de
+   * WCAG, donc le blanc sur l'accent (3,5:1) y est conforme. La descendre en
+   * taille exigerait d'assombrir le fond — voir `theme.ts`.
+   */
   totalTtc: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 5,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: ZINC[300],
-    fontSize: 11,
+    alignItems: "center",
+    marginTop: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: C.accent,
+    color: C.surAccent,
+    fontSize: 14,
     fontFamily: "Helvetica-Bold",
   },
 
-  note: {
-    marginTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: ZINC[200],
-    paddingTop: 10,
-  },
-  noteTexte: { color: ZINC[700] },
+  note: { marginTop: 18, backgroundColor: C.surface, borderRadius: 10, padding: 13 },
+  noteTexte: { color: C.texte },
 
-  mentions: {
-    marginTop: 24,
-    borderTopWidth: 1,
-    borderTopColor: ZINC[300],
-    paddingTop: 10,
-    fontSize: 7.5,
-    color: ZINC[600],
-    lineHeight: 1.55,
-  },
-  mentionForte: { color: ZINC[900], fontFamily: "Helvetica-Bold", marginBottom: 3 },
-  /** Les deux colonnes d'identité du pied, au-dessus des mentions de règlement. */
-  pieds: { flexDirection: "row", justifyContent: "space-between", gap: 20 },
+  // ------------------------------------------------------------------- pied
+  pied: { marginTop: 24, backgroundColor: C.surface, borderRadius: 10, padding: 13 },
+  piedCols: { flexDirection: "row", justifyContent: "space-between", gap: 20 },
   piedColonne: { width: "48%" },
-  piedNom: { color: ZINC[900], fontFamily: "Helvetica-Bold", marginBottom: 1 },
-  piedLigne: { color: ZINC[600] },
-  reglement: {
-    marginTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: ZINC[200],
-    paddingTop: 6,
+  piedNom: { color: C.encre, fontFamily: "Helvetica-Bold", fontSize: 9, marginBottom: 1 },
+  piedLigne: { color: C.texte, fontSize: 8 },
+  piedAbsent: { color: C.discret, fontSize: 8 },
+  /**
+   * Les mentions de règlement : allégées, jamais effacées. 7 pt en `attenue`
+   * (4,8:1) plutôt qu'un gris plus clair — une mention que la loi impose et
+   * qu'on ne peut pas lire n'est pas une mention.
+   */
+  mentionsFines: {
+    marginTop: 9,
+    paddingHorizontal: 2,
+    fontSize: 7,
+    color: C.attenue,
+    lineHeight: 1.5,
   },
-  mentionAbsente: { color: ZINC[400], marginBottom: 5 },
+  mentionForte: { color: C.accentTexte, fontFamily: "Helvetica-Bold" },
 
-  pied: {
+  numeroPage: {
     position: "absolute",
     bottom: 24,
-    left: 44,
-    right: 44,
+    left: 42,
+    right: 42,
     textAlign: "center",
     fontSize: 7,
-    color: ZINC[400],
+    color: C.discret,
   },
 
   filigrane: {
@@ -205,7 +217,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 46,
     fontFamily: "Helvetica-Bold",
-    color: "#ececed",
+    color: "#f7ece4",
     transform: "rotate(-24deg)",
   },
 });
@@ -242,23 +254,22 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
 
         <View style={styles.corps}>
           {/* ---------- En-tête : l'objet à gauche, l'émetteur à droite ---------- */}
-          <View style={[styles.entete, styles.filetEntete]}>
+          <View style={styles.entete}>
             <View style={styles.enteteGauche}>
-              <Text style={styles.titre}>FACTURE</Text>
+              <Text style={styles.titre}>Facture</Text>
+              {document.number ? (
+                <Text style={styles.numero}>{document.number}</Text>
+              ) : (
+                <Text style={styles.numeroAbsent}>
+                  Numéro attribué à l&apos;émission
+                </Text>
+              )}
               {brouillon ? <Text style={styles.etat}>BROUILLON — NON EMIS</Text> : null}
               {document.status === "cancelled" ? (
                 <Text style={styles.etat}>ANNULEE</Text>
               ) : null}
 
               <View style={styles.meta}>
-                <Text>
-                  Numéro :{" "}
-                  {document.number ? (
-                    <Text style={styles.metaValeur}>{document.number}</Text>
-                  ) : (
-                    <Text style={{ color: ZINC[400] }}>attribué à l&apos;émission</Text>
-                  )}
-                </Text>
                 <Text>
                   Date d&apos;émission :{" "}
                   <Text style={styles.metaValeur}>
@@ -293,35 +304,35 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
 
           {/* ---------- Vendeur et client, côte à côte ---------- */}
           <View style={styles.parties}>
-            <View style={styles.partie}>
+            <View style={styles.carte}>
               <Text style={styles.surtitre}>VENDEUR</Text>
-              <Text style={styles.vendeurNom}>{pdfSafe(seller.name)}</Text>
+              <Text style={styles.partieNom}>{pdfSafe(seller.name)}</Text>
               {/* L'adresse du siège, et rien d'autre : les mentions légales
                   d'identité sont rassemblées en pied de page. */}
               {seller.addressLines.length === 0 ? (
-                <Text style={styles.vendeurAbsent}>Adresse du siège non renseignée.</Text>
+                <Text style={styles.partieAbsente}>Adresse du siège non renseignée.</Text>
               ) : (
                 seller.addressLines.map((ligne) => (
-                  <Text key={ligne} style={styles.vendeurLigne}>
+                  <Text key={ligne} style={styles.partieLigne}>
                     {pdfSafe(ligne)}
                   </Text>
                 ))
               )}
             </View>
 
-            <View style={styles.partie}>
+            <View style={styles.carteClient}>
               <Text style={styles.surtitre}>FACTURÉ À</Text>
-              <Text style={styles.clientNom}>
+              <Text style={styles.partieNom}>
                 {client.name ? pdfSafe(client.name) : "—"}
               </Text>
               {client.address ? (
-                <Text style={styles.clientLigne}>{pdfSafe(client.address)}</Text>
+                <Text style={styles.partieLigne}>{pdfSafe(client.address)}</Text>
               ) : null}
               {client.phone ? (
-                <Text style={styles.clientLigne}>{pdfSafe(client.phone)}</Text>
+                <Text style={styles.partieLigne}>{pdfSafe(client.phone)}</Text>
               ) : null}
               {client.vatNumber ? (
-                <Text style={styles.clientLigne}>
+                <Text style={styles.partieLigne}>
                   N° TVA / SIRET : {pdfSafe(client.vatNumber)}
                 </Text>
               ) : null}
@@ -342,11 +353,13 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
             {lines.length === 0 ? (
               <Text style={styles.tableVide}>Aucune prestation.</Text>
             ) : (
-              lines.map((line) => (
-                <View key={line.key} style={styles.ligne} wrap={false}>
-                  <Text style={[styles.colDesignation, styles.celluleForte]}>
-                    {pdfSafe(line.description)}
-                  </Text>
+              lines.map((line, index) => (
+                <View
+                  key={line.key}
+                  style={index % 2 === 0 ? [styles.ligne, styles.lignePaire] : styles.ligne}
+                  wrap={false}
+                >
+                  <Text style={styles.colDesignation}>{pdfSafe(line.description)}</Text>
                   <Text style={[styles.colQte, styles.cellule]}>{line.quantity}</Text>
                   <Text style={[styles.colUnite, styles.cellule]}>
                     {pdfSafe(line.unit)}
@@ -357,9 +370,7 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
                   {seller.vatExempt ? null : (
                     <Text style={[styles.colTva, styles.cellule]}>{taux(line.vatRate)}</Text>
                   )}
-                  <Text style={[styles.colTotal, styles.celluleForte]}>
-                    {montant(line.lineTotalHt)}
-                  </Text>
+                  <Text style={styles.colTotal}>{montant(line.lineTotalHt)}</Text>
                 </View>
               ))
             )}
@@ -418,41 +429,42 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
             coupait en deux — la dénomination et le SIRET en bas d'une page, le
             reste des mentions en haut de la suivante. Un bloc légal qui se
             scinde se lit mal et donne l'impression d'un document tronqué. */}
-        <View style={styles.mentions} wrap={false}>
+        <View wrap={false}>
           {/* Identité légale du vendeur : descendue de l'en-tête, jamais
               retirée. Le Code de commerce l'exige sur la facture, pas en haut
-              de la facture. Deux colonnes — identification à gauche, forme
-              sociale et coordonnées bancaires à droite — parce qu'une seule
-              phrase à points médians devenait illisible. La LISTE, elle, n'a
+              de la facture. Deux colonnes dans une cartouche — identification
+              à gauche, forme sociale et banque à droite. La LISTE, elle, n'a
               pas changé. */}
-          {identiteComplete ? (
-            <View style={styles.pieds}>
-              <View style={styles.piedColonne}>
-                <Text style={styles.piedNom}>{pdfSafe(seller.name)}</Text>
-                {seller.footerIdentityLines.map((ligne) => (
-                  <Text key={ligne} style={styles.piedLigne}>
-                    {pdfSafe(ligne)}
-                  </Text>
-                ))}
+          <View style={styles.pied}>
+            {identiteComplete ? (
+              <View style={styles.piedCols}>
+                <View style={styles.piedColonne}>
+                  <Text style={styles.piedNom}>{pdfSafe(seller.name)}</Text>
+                  {seller.footerIdentityLines.map((ligne) => (
+                    <Text key={ligne} style={styles.piedLigne}>
+                      {pdfSafe(ligne)}
+                    </Text>
+                  ))}
+                </View>
+                <View style={styles.piedColonne}>
+                  {seller.footerLegalLines.map((ligne) => (
+                    <Text key={ligne} style={styles.piedLigne}>
+                      {pdfSafe(ligne)}
+                    </Text>
+                  ))}
+                </View>
               </View>
-              <View style={styles.piedColonne}>
-                {seller.footerLegalLines.map((ligne) => (
-                  <Text key={ligne} style={styles.piedLigne}>
-                    {pdfSafe(ligne)}
-                  </Text>
-                ))}
-              </View>
-            </View>
-          ) : (
-            <Text style={styles.mentionAbsente}>
-              Mentions légales du vendeur incomplètes.
-            </Text>
-          )}
+            ) : (
+              <Text style={styles.piedAbsent}>
+                Mentions légales du vendeur incomplètes.
+              </Text>
+            )}
+          </View>
 
-          {/* Les mentions de règlement restent en PLEINE LARGEUR : ce sont des
-              phrases, pas des identifiants, et les couper en deux colonnes les
-              rendrait pénibles à lire. */}
-          <View style={styles.reglement}>
+          {/* Les mentions de règlement restent en PLEINE LARGEUR et sous la
+              cartouche : ce sont des phrases, pas des identifiants. Allégées
+              — plus petites, en gris — mais toutes présentes. */}
+          <View style={styles.mentionsFines}>
             {legalMentions.vatExempt ? (
               <Text style={styles.mentionForte}>{pdfSafe(legalMentions.vatExempt)}</Text>
             ) : null}
@@ -463,7 +475,7 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
         </View>
 
         <Text
-          style={styles.pied}
+          style={styles.numeroPage}
           fixed
           render={({ pageNumber, totalPages }) =>
             totalPages > 1 ? `Page ${pageNumber} / ${totalPages}` : ""

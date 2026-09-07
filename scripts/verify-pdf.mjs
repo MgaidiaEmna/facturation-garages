@@ -271,7 +271,9 @@ async function main() {
   // laisserait passer un retour silencieux à l'ancien en-tête — ou une
   // colonne du pied vidée au profit de l'autre.
   const compact = compacter(pdf.texte);
-  const posTitre = compact.indexOf(compacter("FACTURE"));
+  // Le titre s'écrit « Facture » depuis le passage au style moderne — c'est
+  // le mot qui identifie la pièce, sa casse n'est qu'une affaire de style.
+  const posTitre = compact.indexOf(compacter("Facture"));
   const posVendeur = compact.indexOf(compacter("VENDEUR"));
   const posClient = compact.indexOf(compacter("FACTURÉ À"));
   const posDesignation = compact.indexOf(compacter("DÉSIGNATION"));
@@ -355,7 +357,7 @@ async function main() {
   const debutDoc = page.body.indexOf("<article");
   const document = page.body.slice(debutDoc, page.body.indexOf("</article>", debutDoc));
 
-  const ecranTitre = document.indexOf("FACTURE");
+  const ecranTitre = document.indexOf("Facture");
   const ecranVendeur = document.indexOf("Vendeur");
   const ecranClient = document.indexOf("Facturé à");
   const ecranSiret = document.indexOf("SIRET 81234567800012");

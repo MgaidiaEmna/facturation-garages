@@ -192,11 +192,32 @@ export function contientTexte(texteDuPdfExtrait, aiguille) {
  * depuis le haut. On suit la pile `q`/`Q` pour accumuler les `1 0 0 1 x y cm`
  * et on relève la position au moment où le texte est dessiné.
  *
- * Le texte cherché doit être ASCII : il est comparé à sa forme hexadécimale,
- * telle que react-pdf l'écrit dans les tableaux `TJ`.
+ * Le texte cherché est comparé au CONTENU DÉCODÉ de chaque instruction de
+ * dessin, et non à sa forme hexadécimale brute. La nuance est tout sauf
+ * théorique : react-pdf découpe les mots en runs de crénage — « Indemnité »
+ * sort en `<Indem><nité f>` — et ce découpage CHANGE dès qu'on touche à la
+ * taille de police. Chercher l'hexadécimal contigu faisait donc échouer une
+ * assertion de position à chaque retouche de style, alors que le PDF était
+ * juste. On décode d'abord, on cherche ensuite.
  */
+/** Le texte d'une instruction `TJ` / `Tj`, runs de crénage recollés. */
+function texteDeLInstruction(instruction) {
+  if (!instruction.includes("<")) return "";
+  let out = "";
+  for (const trouve of instruction.matchAll(/<([0-9a-fA-F]+)>/g)) {
+    const hex = trouve[1];
+    if (hex.length % 2 !== 0) continue;
+    for (let i = 0; i < hex.length; i += 2) {
+      const code = parseInt(hex.slice(i, i + 2), 16);
+      // Les polices à deux octets intercalent des zéros : on les écarte.
+      if (code !== 0) out += String.fromCharCode(code);
+    }
+  }
+  return out;
+}
+
 export function positionsVerticales(buffer, texte) {
-  const aiguille = Buffer.from(texte, "latin1").toString("hex");
+  const aiguille = texte;
   const resultats = [];
   let position = 0;
 
@@ -229,7 +250,7 @@ export function positionsVerticales(buffer, texte) {
       } else {
         const cm = t.match(/^1 0 0 1 (-?[\d.]+) (-?[\d.]+) cm$/);
         if (cm) y += Number(cm[2]);
-        else if (t.includes(aiguille)) resultats.push(y);
+        else if (texteDeLInstruction(t).includes(aiguille)) resultats.push(y);
       }
     }
   }
