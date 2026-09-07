@@ -11,7 +11,8 @@
     "verify:auth": "node --env-file-if-exists=.env.local scripts/verify-auth-flow.mjs",
     "verify:garages": "node --env-file-if-exists=.env.local scripts/verify-admin-garages.mjs",
     "verify:factures": "node --env-file-if-exists=.env.local scripts/verify-invoice-editor.mjs",
-    "verify:emission": "node --env-file-if-exists=.env.local scripts/verify-emission.mjs"
+    "verify:emission": "node --env-file-if-exists=.env.local scripts/verify-emission.mjs",
+    "verify:catalogue": "node --env-file-if-exists=.env.local scripts/verify-catalog.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

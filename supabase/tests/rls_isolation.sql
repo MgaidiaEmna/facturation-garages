@@ -170,6 +170,34 @@ grant execute on function public.expect_blocked(text, text) to authenticated;
 --   21b reste un garde-fou de régression pour le jour où l'une des deux
 --   barrières changera de forme.
 
+-- Phase 7 — chaque mutation a été injectée et vérifiée :
+--   drop policy "clients_write" on clients;
+--   create policy "clients_write" on clients for all to authenticated
+--     using (is_admin() or (garage_id = my_garage_id() and my_write_access()))
+--     with check (is_admin() or my_write_access());
+--       le `using` reste juste, le `with check` perd la borne de locataire :
+--       le bug classique des policies — on borne ce qu'on peut LIRE pour
+--       écrire, pas ce qu'on peut ÉCRIRE. Le contrôle d'abonnement étant
+--       conservé, la section 7 reste verte
+--                                                 -> section 22b hurle
+--       (« un garage a créé un client chez un autre »)
+--   drop policy "clients_write" on clients;
+--   create policy "clients_write" on clients for all to authenticated
+--     using (is_admin()) with check (is_admin());
+--       le carnet se referme sur les garages. Une policy fermée à TOUT LE
+--       MONDE passe 22a et 22b sans broncher : c'est 22c, qui éprouve ce qui
+--       DOIT marcher, qui s'en aperçoit
+--                                                 -> section 22c hurle
+--
+--   Portée réelle de la section 22, mesurée : la lecture croisée du carnet et
+--   l'écriture d'un garage sans abonnement étaient DÉJÀ couvertes par les
+--   sections 1, 2, 7 et 11 — une policy `clients_select using (true)` fait
+--   hurler la section 1 bien avant la 22. Ce que la 22 ajoute vraiment, c'est
+--   le `with check` sur le déménagement d'une ligne chez le voisin (22b), la
+--   preuve que le carnet reste ÉCRIVABLE chez soi (22c) et LISIBLE en lecture
+--   seule (22d). Le reste y est de la redondance assumée : la section décrit
+--   la frontière du point de vue des écrans de la phase 7.
+
 -- ---------------------------------------------------------------------------
 -- Jeu d'essai (créé en tant que propriétaire, hors RLS)
 -- ---------------------------------------------------------------------------
@@ -1729,6 +1757,229 @@ begin
 
   raise notice '21c. Liste par statut : cloisonnée ....... OK';
 end $$;
+
+-- ===========================================================================
+-- 22. Carnet de clients et catalogue de prestations (phase 7)
+-- ===========================================================================
+-- La phase 7 n'ajoute aucune policy : `clients_select` / `clients_write` et
+-- `services_select` / `services_write` existent depuis la phase 1, et la
+-- phase 2 les a basculées sur `my_write_access()`. Ce qui change, c'est qu'un
+-- écran s'appuie désormais dessus — et que les lectures applicatives
+-- N'ÉCRIVENT AUCUN filtre sur `garage_id` : elles font confiance au RLS.
+-- Cette section vérifie que cette confiance est fondée.
+--
+-- Le voisin de référence est ici le garage C, et non B : la section 18c a
+-- supprimé B pour éprouver la suppression conditionnelle, et ses clients ont
+-- suivi par cascade. Un test qui viserait une ligne déjà disparue passerait
+-- au vert sans rien prouver.
+reset role;
+
+-- Le carnet et le catalogue du voisin, montés en tant que propriétaire.
+insert into clients (id, garage_id, name, phone) values
+  ('c1000000-0000-0000-0000-0000000000c1', 'c0000000-0000-0000-0000-0000000000c1',
+   'Client de C', '04 73 00 00 00');
+
+insert into services (id, garage_id, label, default_price_ht, default_vat_rate) values
+  ('c3000000-0000-0000-0000-0000000000c1', 'c0000000-0000-0000-0000-0000000000c1',
+   'Vidange C', 95, 20);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- 22a. Lecture : chacun son carnet, chacun son catalogue
+-- ---------------------------------------------------------------------------
+-- `listClients()` fait `select … from clients order by name`, sans clause
+-- `where`. Si la policy s'ouvrait, l'écran afficherait le carnet du voisin
+-- sans qu'une ligne de TypeScript ait changé.
+do $$
+declare
+  v_clients     int;
+  v_services    int;
+  v_hors_garage int;
+begin
+  select count(*) into v_clients from clients;
+  if v_clients <> 1 then
+    raise exception 'FUITE : le garage A voit % client(s) au lieu du sien.', v_clients
+      using errcode = 'F0001';
+  end if;
+
+  select count(*) into v_hors_garage from clients
+  where garage_id <> 'a0000000-0000-0000-0000-0000000000a1';
+  if v_hors_garage > 0 then
+    raise exception 'FUITE : % client(s) d''un autre garage dans le carnet.',
+      v_hors_garage using errcode = 'F0001';
+  end if;
+
+  select count(*) into v_services from services;
+  if v_services <> 1 then
+    raise exception 'FUITE : le garage A voit % prestation(s) au lieu de la sienne.',
+      v_services using errcode = 'F0001';
+  end if;
+
+  select count(*) into v_hors_garage from services
+  where garage_id <> 'a0000000-0000-0000-0000-0000000000a1';
+  if v_hors_garage > 0 then
+    raise exception 'FUITE : % prestation(s) d''un autre garage dans le catalogue.',
+      v_hors_garage using errcode = 'F0001';
+  end if;
+
+  -- Viser nommément la ligne du voisin ne la fait pas apparaître non plus :
+  -- le RLS filtre, il ne se contente pas de trier.
+  if exists (select 1 from clients where id = 'c1000000-0000-0000-0000-0000000000c1') then
+    raise exception 'FUITE : le client de C est lisible par A.' using errcode = 'F0001';
+  end if;
+  if exists (select 1 from services where id = 'c3000000-0000-0000-0000-0000000000c1') then
+    raise exception 'FUITE : la prestation de C est lisible par A.' using errcode = 'F0001';
+  end if;
+
+  raise notice '22a. Carnet et catalogue : cloisonnés .... OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 22b. Écriture : ni chez le voisin, ni pour son compte
+-- ---------------------------------------------------------------------------
+-- Le `garage_id` ne vient jamais du formulaire : les Server Actions le lisent
+-- dans `profiles`. Reste à prouver que même un appelant qui l'enverrait
+-- lui-même n'obtiendrait rien.
+select public.expect_blocked(
+  $q$ insert into clients (garage_id, name)
+      values ('c0000000-0000-0000-0000-0000000000c1', 'Client injecté chez C') $q$,
+  'un garage a créé un client chez un autre');
+
+select public.expect_blocked(
+  $q$ insert into services (garage_id, label, default_price_ht)
+      values ('c0000000-0000-0000-0000-0000000000c1', 'Prestation injectée', 10) $q$,
+  'un garage a créé une prestation chez un autre');
+
+select public.expect_blocked(
+  $q$ update clients set name = 'Renommé par A'
+      where id = 'c1000000-0000-0000-0000-0000000000c1' $q$,
+  'un garage a renommé le client d''un autre');
+
+select public.expect_blocked(
+  $q$ delete from clients where id = 'c1000000-0000-0000-0000-0000000000c1' $q$,
+  'un garage a supprimé le client d''un autre');
+
+select public.expect_blocked(
+  $q$ delete from services where garage_id = 'c0000000-0000-0000-0000-0000000000c1' $q$,
+  'un garage a vidé le catalogue d''un autre');
+
+-- Déménager sa propre ligne chez le voisin : c'est le `with check` qui doit
+-- refuser, pas le `using`. Une policy dont seul le `using` est correct laisse
+-- passer exactement cette manœuvre.
+select public.expect_blocked(
+  $q$ update clients set garage_id = 'c0000000-0000-0000-0000-0000000000c1'
+      where id = 'a1000000-0000-0000-0000-0000000000a1' $q$,
+  'un garage a déplacé son client chez un autre');
+
+-- Et le carnet de C est intact. Vérifié hors RLS, en tant que propriétaire :
+-- sous le RLS de A, l'absence de la ligne ne prouverait rien — on ne saurait
+-- pas si elle est intacte ou filtrée.
+reset role;
+
+do $$
+declare
+  v_nom       text;
+  v_prestation int;
+begin
+  select name into v_nom from clients
+  where id = 'c1000000-0000-0000-0000-0000000000c1';
+  if v_nom is distinct from 'Client de C' then
+    raise exception 'FUITE : le carnet de C a été réécrit (client : %).',
+      coalesce(v_nom, '<supprimé>') using errcode = 'F0001';
+  end if;
+
+  select count(*) into v_prestation from services
+  where garage_id = 'c0000000-0000-0000-0000-0000000000c1';
+  if v_prestation <> 1 then
+    raise exception 'FUITE : le catalogue de C compte % prestation(s) au lieu de 1.',
+      v_prestation using errcode = 'F0001';
+  end if;
+end $$;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$ begin raise notice '22b. Écriture : bornée à son garage ..... OK'; end $$;
+
+-- ---------------------------------------------------------------------------
+-- 22c. Chez soi, tout est permis — et le `garage_id` est celui du serveur
+-- ---------------------------------------------------------------------------
+-- Une preuve d'isolation qui ne montre pas ce qui DOIT marcher ne prouve
+-- rien : une policy fermée à tout le monde passerait 22a et 22b sans broncher.
+do $$
+declare
+  v_id     uuid;
+  v_garage uuid;
+begin
+  insert into clients (garage_id, name, phone, vat_number)
+  values ('a0000000-0000-0000-0000-0000000000a1', 'Nouveau client de A',
+          '04 72 00 00 00', 'BE0123456789')
+  returning id, garage_id into v_id, v_garage;
+
+  if v_garage <> 'a0000000-0000-0000-0000-0000000000a1' then
+    raise exception 'Le client n''est pas rattaché au bon garage : %.', v_garage;
+  end if;
+
+  update clients set name = 'Client de A, corrigé' where id = v_id;
+  if (select name from clients where id = v_id) <> 'Client de A, corrigé' then
+    raise exception 'Un garage ne peut pas corriger son propre client.';
+  end if;
+
+  insert into services (garage_id, label, default_unit, default_price_ht, default_vat_rate)
+  values ('a0000000-0000-0000-0000-0000000000a1', 'Géométrie', 'U', 120, 20)
+  returning id into v_id;
+
+  delete from services where id = v_id;
+  if exists (select 1 from services where id = v_id) then
+    raise exception 'Un garage ne peut pas retirer sa propre prestation.';
+  end if;
+
+  raise notice '22c. Chez soi : lecture et écriture ..... OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 22d. Lecture seule : le carnet reste LISIBLE, il n'est plus modifiable
+-- ---------------------------------------------------------------------------
+-- C'est la nuance que l'écran doit refléter : abonnement échu ne veut pas dire
+-- écran vide. Le garage C est échu depuis la section 20c.
+set local request.jwt.claims = '{"sub":"cccccccc-0000-0000-0000-000000000003","role":"authenticated"}';
+
+do $$
+declare v_clients int;
+begin
+  if has_write_access('c0000000-0000-0000-0000-0000000000c1') then
+    raise exception 'Le garage C devrait être en lecture seule.';
+  end if;
+
+  -- Lisible : il doit pouvoir consulter ses fiches même sans payer.
+  select count(*) into v_clients from clients;
+  if v_clients <> 1 then
+    raise exception
+      'Un garage en lecture seule doit voir son carnet (% client(s) visible(s)).',
+      v_clients;
+  end if;
+
+  raise notice '22d. Abonnement échu : carnet consultable OK';
+end $$;
+
+select public.expect_blocked(
+  $q$ insert into clients (garage_id, name)
+      values ('c0000000-0000-0000-0000-0000000000c1', 'Malgré la lecture seule') $q$,
+  'un garage en lecture seule a créé un client');
+
+select public.expect_blocked(
+  $q$ update clients set name = 'Malgré la lecture seule'
+      where id = 'c1000000-0000-0000-0000-0000000000c1' $q$,
+  'un garage en lecture seule a modifié un client');
+
+select public.expect_blocked(
+  $q$ insert into services (garage_id, label, default_price_ht)
+      values ('c0000000-0000-0000-0000-0000000000c1', 'Malgré la lecture seule', 10) $q$,
+  'un garage en lecture seule a créé une prestation');
+
+do $$ begin raise notice '22e. Abonnement échu : écriture fermée .. OK'; end $$;
 
 do $$
 begin

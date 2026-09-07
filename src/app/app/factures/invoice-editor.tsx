@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -25,7 +26,10 @@ import type { InvoiceDraft, SellerIdentity } from "@/lib/invoice/types";
 import { formatAmount } from "@/lib/format";
 import { getLocale, type LocaleCode } from "@/lib/locale";
 import { cn } from "@/lib/utils";
+import type { CatalogClient, CatalogService, EditorCatalog } from "@/lib/catalog/types";
 import { FinalizeInvoiceButton } from "./finalize-invoice-button";
+import { ClientPicker, ServicePicker } from "./catalog-pickers";
+import { SaveClientButton } from "./save-client-button";
 
 /**
  * Clé de la ligne vierge offerte à l'ouverture d'un brouillon neuf.
@@ -55,6 +59,7 @@ export function InvoiceEditor({
   draft,
   localeCode,
   today,
+  catalog,
   canWrite,
   readOnlyReason,
   finalizeBlockMessage,
@@ -70,6 +75,12 @@ export function InvoiceEditor({
    * que celle déjà écrite dans le HTML.
    */
   today: string;
+  /**
+   * Carnet de clients et catalogue de prestations du garage, servis avec la
+   * page. Ils PRÉ-REMPLISSENT, ils ne contraignent pas : rien de ce qui est
+   * choisi ici n'est relié à la facture, tout y reste modifiable.
+   */
+  catalog: EditorCatalog;
   canWrite: boolean;
   readOnlyReason: string | null;
   /**
@@ -127,6 +138,30 @@ export function InvoiceEditor({
   function addLine() {
     const ligne = emptyLine(nouvelleCle(), localeCode);
     setLines((current) => [...current, ligne]);
+  }
+
+  /**
+   * Reprend les coordonnées d'un client du carnet.
+   *
+   * On REMPLACE les champs, y compris par du vide : choisir un client sans
+   * numéro de TVA après en avoir choisi un qui en avait laisserait sinon
+   * l'ancien numéro sur la facture du nouveau. Le pire des mélanges.
+   */
+  function reprendreClient(client: CatalogClient) {
+    setClientName(client.name);
+    setClientAddress(client.address ?? "");
+    setClientPhone(client.phone ?? "");
+    setClientVatNumber(client.vatNumber ?? client.siret ?? "");
+  }
+
+  /** Reprend une prestation du catalogue sur une ligne — quantité intacte. */
+  function reprendrePrestation(key: string, service: CatalogService) {
+    updateLine(key, {
+      description: service.label,
+      unit: service.defaultUnit,
+      unitPriceHt: service.defaultPriceHt,
+      vatRate: service.defaultVatRate,
+    });
   }
 
   /**
@@ -238,8 +273,16 @@ export function InvoiceEditor({
             <CardHeader>
               <CardTitle className="text-base">Client</CardTitle>
               <CardDescription>
-                Saisi à chaque facture. Le carnet de clients arrive en phase 7.
+                Choisissez un client du carnet, ou saisissez un client ponctuel — il
+                n&apos;a pas à être enregistré pour être facturé.
               </CardDescription>
+              <CardAction>
+                <ClientPicker
+                  clients={catalog.clients}
+                  onSelect={reprendreClient}
+                  disabled={!canWrite}
+                />
+              </CardAction>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <Field className="sm:col-span-2">
@@ -284,6 +327,17 @@ export function InvoiceEditor({
                 />
                 <FieldDescription>Obligatoire en B2B intracommunautaire.</FieldDescription>
               </Field>
+
+              {canWrite ? (
+                <div className="flex justify-end sm:col-span-2">
+                  <SaveClientButton
+                    clientName={clientName}
+                    clientAddress={clientAddress}
+                    clientPhone={clientPhone}
+                    clientVatNumber={clientVatNumber}
+                  />
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -332,7 +386,10 @@ export function InvoiceEditor({
                   vatExempt={seller.vatExempt}
                   decimals={locale.decimals}
                   localeCode={localeCode}
+                  services={catalog.services}
+                  canWrite={canWrite}
                   onChange={(patch) => updateLine(line.key, patch)}
+                  onPickService={(service) => reprendrePrestation(line.key, service)}
                   onRemove={() => removeLine(line.key)}
                   removable={lines.length > 1}
                 />
@@ -406,7 +463,10 @@ function LineRow({
   vatExempt,
   decimals,
   localeCode,
+  services,
+  canWrite,
   onChange,
+  onPickService,
   onRemove,
   removable,
 }: {
@@ -416,7 +476,10 @@ function LineRow({
   vatExempt: boolean;
   decimals: number;
   localeCode: LocaleCode;
+  services: CatalogService[];
+  canWrite: boolean;
   onChange: (patch: Partial<DraftLine>) => void;
+  onPickService: (service: CatalogService) => void;
   onRemove: () => void;
   removable: boolean;
 }) {
@@ -428,6 +491,13 @@ function LineRow({
         <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Ligne {index + 1}
         </span>
+        <div className="flex items-center gap-1">
+        <ServicePicker
+          services={services}
+          localeCode={localeCode}
+          onSelect={onPickService}
+          disabled={!canWrite}
+        />
         <Button
           type="button"
           variant="ghost"
@@ -439,6 +509,7 @@ function LineRow({
           <Trash2 aria-hidden />
           <span className="sr-only">Supprimer la ligne {index + 1}</span>
         </Button>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-12">

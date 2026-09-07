@@ -20,6 +20,8 @@ export default async function GarageLayout({ children }: LayoutProps<"/app">) {
       nav={[
         { href: "/app", label: "Tableau de bord" },
         { href: "/app/factures", label: "Factures" },
+        { href: "/app/clients", label: "Clients" },
+        { href: "/app/prestations", label: "Prestations" },
       ]}
     >
       {children}

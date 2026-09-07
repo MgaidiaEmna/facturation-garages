@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+import {
+  bicSchema,
+  checkboxSchema,
+  frenchVatNumberSchema,
+  ibanSchema,
+  numberFromForm,
+  optionalEmailSchema,
+  optionalText,
+  phoneSchema,
+  siretSchema,
+} from "@/lib/validation/fields";
+
 import { getLocale, type LocaleCode, type SellerIdentityField } from "@/lib/locale";
 
 /**
@@ -27,133 +39,20 @@ import { getLocale, type LocaleCode, type SellerIdentityField } from "@/lib/loca
  * pièces ; c'est `missingSellerFields()` qui signale la fiche incomplète, et
  * la facture qui la refusera le moment venu. Bloquer l'enregistrement d'une
  * fiche partielle ferait perdre la saisie déjà faite.
+ *
+ * ---------------------------------------------------------------------------
+ * OÙ VIVENT LES BRIQUES DE VALIDATION
+ * ---------------------------------------------------------------------------
+ * SIRET, TVA, IBAN, téléphone et nombres de formulaire sont dans
+ * `@/lib/validation/fields`, partagés avec le carnet de clients et le
+ * catalogue de prestations : un SIRET a quatorze chiffres, qu'il soit celui du
+ * garage ou celui de son client, et deux copies de la règle finiraient par
+ * diverger.
+ *
+ * Le numéro de TVA du VENDEUR est forcément français — c'est le garage. Celui
+ * d'un CLIENT peut être belge ou allemand : d'où deux schémas distincts,
+ * `frenchVatNumberSchema` ici et `euVatNumberSchema` pour le carnet.
  */
-
-/**
- * Un champ absent du `FormData` arrive à `null`, pas à `""` — c'est le cas
- * d'un formulaire partiel ou d'un champ retiré du gabarit. On le traite comme
- * une saisie vide plutôt que de renvoyer « expected string, received null »,
- * qui n'apprendrait rien à personne.
- */
-function fromForm<T extends z.ZodType>(schema: T) {
-  return z.preprocess((value) => (value === null || value === undefined ? "" : value), schema);
-}
-
-/** Champ texte facultatif : « » et « ␣␣ » deviennent `null`, pas `""`. */
-function optionalText(max: number) {
-  return fromForm(
-    z
-      .string()
-      .trim()
-      .max(max, `Texte trop long (${max} caractères maximum).`)
-      .transform((value) => (value === "" ? null : value)),
-  );
-}
-
-/** Retire espaces, points et tirets d'un identifiant saisi à la main. */
-function compact(value: string): string {
-  return value.replace(/[\s.\-]/g, "");
-}
-
-/**
- * SIRET : 14 chiffres. Saisi avec des espaces neuf fois sur dix
- * (« 812 345 678 00012 ») — on les retire au lieu de refuser.
- */
-const siretSchema = fromForm(
-  z
-    .string()
-    .trim()
-    .transform(compact)
-    .refine(
-      (value) => value === "" || /^\d{14}$/.test(value),
-      "Le SIRET doit comporter exactement 14 chiffres (le SIREN = les 9 premiers).",
-    )
-    .transform((value) => (value === "" ? null : value)),
-);
-
-/** TVA intracommunautaire française : FR + clé à 2 caractères + SIREN à 9 chiffres. */
-const vatNumberSchema = fromForm(
-  z
-    .string()
-    .trim()
-    .transform((value) => compact(value).toUpperCase())
-    .refine(
-      (value) => value === "" || /^FR[0-9A-Z]{2}\d{9}$/.test(value),
-      "Format attendu : FR suivi de 2 caractères de clé et des 9 chiffres du SIREN (ex. FR12345678901).",
-    )
-    .transform((value) => (value === "" ? null : value)),
-);
-
-const ibanSchema = fromForm(
-  z
-    .string()
-    .trim()
-    .transform((value) => compact(value).toUpperCase())
-    .refine(
-      (value) => value === "" || /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(value),
-      "IBAN invalide (2 lettres de pays, 2 chiffres de clé, puis le numéro de compte).",
-    )
-    .transform((value) => (value === "" ? null : value)),
-);
-
-const bicSchema = fromForm(
-  z
-    .string()
-    .trim()
-    .transform((value) => compact(value).toUpperCase())
-    .refine(
-      (value) => value === "" || /^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(value),
-      "BIC invalide (8 ou 11 caractères).",
-    )
-    .transform((value) => (value === "" ? null : value)),
-);
-
-const phoneSchema = fromForm(
-  z
-    .string()
-    .trim()
-    .refine(
-      (value) => value === "" || /^[+()\d\s.\-]{6,25}$/.test(value),
-      "Numéro de téléphone invalide.",
-    )
-    .transform((value) => (value === "" ? null : value)),
-);
-
-/**
- * Adresse de contact, reprise sur la facture. Facultative, contrairement à
- * l'adresse de connexion qui vit dans `auth.users` et ne se modifie pas ici.
- */
-const optionalEmailSchema = fromForm(
-  z
-    .string()
-    .trim()
-    .toLowerCase()
-    .max(254, "Adresse e-mail trop longue.")
-    .refine(
-      (value) => value === "" || z.email().safeParse(value).success,
-      "Adresse e-mail invalide.",
-    )
-    .transform((value) => (value === "" ? null : value)),
-);
-
-/**
- * Nombre saisi dans un formulaire. Le navigateur envoie « 10.5 » avec
- * `type="number"`, mais un collage depuis un tableur donne « 10,5 » : on
- * accepte les deux plutôt que de rejeter une virgule française.
- */
-function numberFromForm(message: string) {
-  return z.preprocess((value) => {
-    if (typeof value !== "string") return value;
-    const normalized = value.trim().replace(",", ".");
-    return normalized === "" ? undefined : Number(normalized);
-  }, z.number({ error: message }));
-}
-
-/** Case à cocher / interrupteur : absent du FormData quand il est décoché. */
-const checkboxSchema = z.preprocess(
-  (value) => value === "on" || value === "true" || value === true,
-  z.boolean(),
-);
 
 /**
  * Fiche garage — identité légale, contact et conditions de règlement.
@@ -171,7 +70,7 @@ export const garageIdentitySchema = z.object({
     .max(120, "Nom trop long (120 caractères maximum)."),
   legal_form: optionalText(60),
   siret: siretSchema,
-  vat_number: vatNumberSchema,
+  vat_number: frenchVatNumberSchema,
   rcs_city: optionalText(120),
   capital: optionalText(60),
   address: optionalText(300),

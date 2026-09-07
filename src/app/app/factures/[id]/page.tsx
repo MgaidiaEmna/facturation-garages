@@ -5,6 +5,7 @@ import { requireGarage } from "@/lib/auth/session";
 import { getInvoice, getSellerIdentity } from "@/lib/invoice/queries";
 import { DEFAULT_LOCALE, type LocaleCode } from "@/lib/locale";
 import { todayInLocale } from "@/lib/format";
+import { getEditorCatalog } from "@/lib/catalog/queries";
 import { InvoiceEditor } from "../invoice-editor";
 import { IssuedInvoiceView } from "../issued-invoice";
 import { readOnlyReason } from "../read-only";
@@ -43,6 +44,8 @@ export default async function InvoicePage(props: PageProps<"/app/factures/[id]">
   }
 
   const locale = (garage.locale as LocaleCode) || DEFAULT_LOCALE;
+  // Chargé APRÈS l'aiguillage : une facture émise n'a rien à faire du carnet.
+  const catalog = await getEditorCatalog();
 
   return (
     <InvoiceEditor
@@ -50,6 +53,7 @@ export default async function InvoicePage(props: PageProps<"/app/factures/[id]">
       draft={view.draft}
       localeCode={locale}
       today={todayInLocale(locale)}
+      catalog={catalog}
       canWrite={access.canWrite}
       readOnlyReason={readOnlyReason(garage, access)}
       finalizeBlockMessage={access.finalizeBlockMessage}

@@ -17,6 +17,7 @@ npm run verify:auth     # parcours d'authentification de bout en bout
 npm run verify:garages  # espace d'administration des garages (phase 3)
 npm run verify:factures # éditeur de facture (phase 5)
 npm run verify:emission # numérotation et émission (phase 6)
+npm run verify:catalogue # carnet de clients et catalogue (phase 7)
 ```
 
 Les scripts `verify:*` pilotent l'application **réellement lancée** en se comportant
@@ -298,6 +299,51 @@ qui est à l'écran.
 
 L'annulation par avoir (`final → cancelled`) n'est **pas** exposée : l'onglet « Annulées »
 n'apparaît que s'il contient quelque chose.
+
+### Carnet de clients et catalogue de prestations (phase 7)
+
+Comme la phase 6, **aucune migration** : `clients` et `services` existent depuis la phase 1,
+avec leurs triggers `set_updated_at` et leurs policies `*_select` / `*_write` — déjà
+basculées sur `my_write_access()`. La phase 7 branche des écrans dessus.
+
+| Écran | Route |
+|---|---|
+| Carnet — liste et recherche | `/app/clients?q=…` |
+| Fiche client — création / modification | `/app/clients/nouveau`, `/app/clients/[id]` |
+| Catalogue — liste et recherche | `/app/prestations?q=…` |
+| Fiche prestation | `/app/prestations/nouvelle`, `/app/prestations/[id]` |
+
+`src/lib/catalog/` suit le découpage de `src/lib/invoice/` : `schema.ts` (zod, sans dépendance
+serveur), `types.ts` (importable depuis un composant client), `queries.ts` (`server-only`),
+`actions.ts`.
+
+**Les briques de validation sont dans `src/lib/validation/fields.ts`**, partagées avec la fiche
+garage : un SIRET a quatorze chiffres, qu'il soit celui du garage ou celui de son client. Une
+seule exception, délibérée — le n° de TVA du **vendeur** est forcément français
+(`frenchVatNumberSchema`), celui d'un **client** peut être belge ou allemand
+(`euVatNumberSchema`). Refuser « BE0123456789 » interdirait de facturer ce client.
+
+**Le `garage_id` vient de `requireGarage()`**, donc de `profiles`, jamais du formulaire.
+`clients.garage_id` étant `not null`, il faut bien l'écrire : c'est l'action qui le fournit, et
+`clients_write` vérifie de son côté que la valeur écrite est `my_garage_id()`. Les mises à jour
+et les suppressions, elles, ne portent **aucun** filtre d'appartenance — `.eq("id", …)` suffit,
+le RLS écarte le reste. Recopier `garage_id = …` donnerait l'illusion que c'est ce filtre qui
+protège.
+
+**Choisir ne fige rien.** Le sélecteur de client et celui de prestation ne font que REMPLIR des
+champs. Aucun lien n'est posé : ni `client_id` sur la facture, ni `service_id` sur la ligne.
+C'est un choix, pas un raccourci — une facture est une pièce comptable et doit rester telle
+qu'elle a été émise ; si elle pointait vers la fiche client, corriger une adresse aujourd'hui
+réécrirait une facture de l'an dernier. Conséquence assumée : **pas d'écran « toutes les
+factures de ce client »** sans poser ce lien au préalable, et donc sans décider ce qu'il advient
+quand la fiche change.
+
+Corollaire : supprimer un client ou une prestation ne casse aucune facture, émise ou non.
+
+`getEditorCatalog()` sert les listes COMPLÈTES à l'éditeur, pas une recherche serveur :
+l'autocomplétion doit répondre à la frappe. C'est le seul endroit à revoir le jour où un garage
+aura des milliers de fiches — les écrans de liste ont déjà leur recherche en base (`ilike`, avec
+les métacaractères échappés).
 
 ### Moteur de facture
 

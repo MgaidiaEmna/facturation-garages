@@ -75,6 +75,7 @@ email*.
 | `npm run verify:garages` | Rejoue l'espace d'administration des garages (phase 3) |
 | `npm run verify:factures` | Rejoue l'éditeur de facture (phase 5) |
 | `npm run verify:emission` | Rejoue la numérotation et l'émission (phase 6) |
+| `npm run verify:catalogue` | Rejoue le carnet de clients et le catalogue (phase 7) |
 | `npx supabase start` / `stop` | Pile Supabase locale (Docker) |
 
 ## Base de données
@@ -253,6 +254,24 @@ npm run verify:emission
 > est une boîte de dialogue Radix, montée par le JavaScript. Le script emprunte le même
 > chemin de données — `finalize_invoice()` avec le **jeton de session du garage** — et
 > constate l'effet en base et à l'écran. La clé service role ne sert qu'à **observer**.
+
+### Vérifier le carnet et le catalogue
+
+`npm run verify:catalogue` pilote l'application lancée et vérifie le **câblage** de la
+phase 7 : CRUD des clients et des prestations par les vrais écrans, normalisation du SIRET et
+du n° de TVA, recherche, prix saisi avec une virgule, données servies à l'éditeur, isolation
+vue de l'application (le carnet du voisin est invisible, un `clientId` forgé est refusé, un
+`garage_id` glissé dans le formulaire est ignoré) et comportement en lecture seule.
+
+```bash
+npm run dev            # dans un autre terminal
+npm run verify:catalogue
+```
+
+> **Ce qu'il ne peut pas atteindre.** Le sélecteur d'autocomplétion : c'est un Popover monté
+> par le JavaScript, absent du HTML servi. Le script éprouve ce dont il dépend — les données
+> que la page lui remet et l'action derrière chaque choix. Le clic attend le test navigateur
+> de la phase 10.
 
 ### Vérifier le limiteur de débit
 
@@ -571,7 +590,8 @@ scripts/
       brouillons enregistrables sans consommer de numéro
 - [x] **Phase 6** — Numérotation séquentielle, émission (facture figée, mentions du
       vendeur gelées), liste à onglets brouillons / émises / annulées
-- [ ] **Phase 7** — Catalogue de prestations, carnet de clients
+- [x] **Phase 7** — Carnet de clients et catalogue de prestations, avec pré-remplissage
+      de l'éditeur (le catalogue est un point de départ, il ne fige rien)
 - [ ] **Phase 8** — Export PDF conforme
 - [ ] **Phase 9** — Logos et bibliothèque premium
 - [ ] **Phase 10** — Finitions, tests d'isolation RLS, accessibilité
