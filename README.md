@@ -73,6 +73,7 @@ email*.
 | `npm run db:seed` | Crée le compte super administrateur |
 | `npm run verify:auth` | Rejoue le parcours d'authentification de bout en bout |
 | `npm run verify:garages` | Rejoue l'espace d'administration des garages (phase 3) |
+| `npm run verify:factures` | Rejoue l'éditeur de facture (phase 5) |
 | `npx supabase start` / `stop` | Pile Supabase locale (Docker) |
 
 ## Base de données
@@ -144,7 +145,7 @@ psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql
 > des messages sont mal décodés et des assertions portant sur des libellés échouent à tort — un
 > faux négatif qui fait perdre du temps sur une vraie régression.
 
-Il couvre, en 19 sections : cloisonnement en lecture et en écriture entre garages (tables
+Il couvre, en 20 sections : cloisonnement en lecture et en écriture entre garages (tables
 filles comprises), escalade de privilège, immuabilité des factures émises, numérotation
 séquentielle, passage en lecture seule sur abonnement expiré, drapeau premium sur les logos,
 isolation du bucket de stockage — et, depuis la phase 2 : compte à l'e-mail non vérifié privé de
@@ -159,7 +160,10 @@ sans facture émise s'efface, un garage qui en a émis est refusé. La phase 4 a
 **section 19** : un garage ne crée, ne modifie ni ne supprime sa ligne d'abonnement, et
 `register_payment()` lui est fermée ; côté administrateur, un renouvellement anticipé
 **ajoute** au temps restant, un abonnement échu repart d'aujourd'hui, et le premier paiement
-d'un garage en essai lève le plafond des 3 factures.
+d'un garage en essai lève le plafond des 3 factures. La phase 5 ajoute la **section 20** :
+un brouillon est rattaché au garage de la session et **jamais à un `garage_id` transmis par
+le navigateur**, le brouillon d'un autre garage est inaccessible, un espace en lecture seule
+n'enregistre rien, et les totaux stockés sont ceux des lignes — TVA ventilée par taux.
 
 **Un test de sécurité qui ne sait pas échouer ne prouve rien.** L'en-tête du fichier liste
 des mutations à injecter (retirer une policy, un trigger) : après toute modification du
@@ -213,6 +217,24 @@ npm run verify:garages
 > de `deleteGarageAction` (confirmation par le nom, puis suppression du compte Auth) reste
 > à couvrir par un test navigateur, prévu en phase 10.
 
+### Vérifier l'éditeur de facture
+
+`npm run verify:factures` pilote l'application lancée et vérifie le **câblage** de la
+phase 5 : écrans, aperçu rendu côté serveur, enregistrement d'un brouillon, totaux calculés
+en base, ligne sans désignation écartée, et les frontières — `garage_id` du navigateur
+ignoré, brouillon d'autrui refusé.
+
+```bash
+npm run dev            # dans un autre terminal
+npm run verify:factures
+```
+
+> **Ce qu'il ne peut pas atteindre.** La saisie elle-même : l'éditeur est un composant
+> client, sa Server Action est appelée en JavaScript et non par un `<form>` classique. Le
+> script emprunte donc le même chemin de données — `save_invoice_draft()` avec le **jeton de
+> session du garage**, donc sous RLS — et constate l'effet en base. Jamais avec la clé
+> service role, qui contournerait ce qu'on veut éprouver.
+
 ### Vérifier le limiteur de débit
 
 `supabase/tests/rate_limit.sql` est la seconde preuve exécutable : `rls_isolation.sql` montre que
@@ -258,6 +280,35 @@ ne doit jamais être appliqué à un projet Supabase.
   (conservation légale). Le désactiver (`is_active = false`) est la bonne opération.
 - **L'identité légale du garage est maintenue par l'administrateur**, pas par le garage :
   SIRET, RCS, capital et forme juridique conditionnent la conformité des factures.
+
+## Espace garage
+
+| Écran | Route | Ce qu'on y fait |
+|---|---|---|
+| Tableau de bord | `/app` | état commercial, accès rapide à une nouvelle facture |
+| Mes factures | `/app/factures` | brouillons en cours |
+| Éditeur | `/app/factures/nouveau`, `/app/factures/[id]` | saisie + aperçu temps réel |
+
+### L'éditeur de facture
+
+Deux colonnes : la saisie à gauche (client, dates, lignes de prestations), l'aperçu à droite,
+mis à jour **à chaque frappe**. L'aperçu est volontairement à contre-courant du reste de
+l'application — fond blanc, filets fins : ce n'est pas un écran, c'est le document que le
+client recevra.
+
+**Les montants affichés sont indicatifs.** Ils viennent de `computeTotals()`, en JavaScript,
+pour suivre la frappe. Ceux qui comptent sont recalculés en `numeric` exact par
+`save_invoice_draft()` à l'enregistrement, puis par `finalize_invoice()` à l'émission.
+L'algorithme est identique des deux côtés — lignes arrondies, groupées par taux, TVA calculée
+sur la base agrégée — mais **aucun total venant du navigateur n'est jamais enregistré**.
+
+Un brouillon ne consomme **ni numéro ni facture d'essai** : la série légale n'a de trou que
+si on lui en fait, et le numéro n'est attribué qu'à l'émission (phase 6).
+
+Un garage en lecture seule (abonnement expiré, compte désactivé) **ouvre l'éditeur et voit
+l'aperçu se construire**, mais l'enregistrement est refusé — par le RLS, pas par l'écran.
+Nuance conservée : un essai gratuit épuisé laisse au contraire les brouillons enregistrables ;
+c'est l'émission qui est plafonnée.
 
 ## Espace d'administration
 
@@ -497,7 +548,8 @@ scripts/
       de TVA), recherche et filtres, drapeau premium, activation, suppression conditionnelle
 - [x] **Phase 4** — Abonnements et paiements : encaissement hors ligne, prolongation,
       historique, blocage en lecture seule à l'échéance
-- [ ] **Phase 5** — Éditeur de facture avec aperçu temps réel
+- [x] **Phase 5** — Éditeur de facture : saisie à gauche, aperçu temps réel à droite,
+      brouillons enregistrables sans consommer de numéro
 - [ ] **Phase 6** — Numérotation, finalisation, liste des factures
 - [ ] **Phase 7** — Catalogue de prestations, carnet de clients
 - [ ] **Phase 8** — Export PDF conforme

@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
-import { CircleDashed, FileText, Users, Wrench } from "lucide-react";
+import { CircleDashed, FilePlus2, FileText, Users, Wrench } from "lucide-react";
+
+import Link from "next/link";
 
 import { AccessBanner } from "@/components/access-banner";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import {
   Card,
@@ -21,8 +24,9 @@ export const metadata: Metadata = {
 const A_VENIR = [
   {
     icon: FileText,
-    titre: "Éditeur de facture",
-    detail: "Saisie des lignes, calcul HT / TVA / TTC en temps réel, brouillons illimités.",
+    titre: "Numérotation et émission",
+    detail:
+      "Le numéro séquentiel est attribué à l'émission, jamais à l'ouverture du brouillon.",
   },
   {
     icon: Users,
@@ -45,6 +49,14 @@ export default async function GarageHomePage() {
       <PageHeader
         title={`Bonjour${fullName ? ` ${fullName}` : ""}`}
         description={`Espace de facturation de ${garage.name} — ${locale.label}, ${locale.currency}.`}
+        action={
+          <Button asChild>
+            <Link href="/app/factures/nouveau">
+              <FilePlus2 aria-hidden />
+              Nouvelle facture
+            </Link>
+          </Button>
+        }
       />
 
       <AccessBanner garage={garage} access={access} />

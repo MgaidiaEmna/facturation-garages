@@ -17,7 +17,10 @@ export default async function GarageLayout({ children }: LayoutProps<"/app">) {
       spaceLabel={context.garage.name}
       accountLabel={context.email ?? ""}
       homeHref="/app"
-      nav={[{ href: "/app", label: "Tableau de bord" }]}
+      nav={[
+        { href: "/app", label: "Tableau de bord" },
+        { href: "/app/factures", label: "Factures" },
+      ]}
     >
       {children}
     </AppShell>

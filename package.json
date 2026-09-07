@@ -9,7 +9,8 @@
     "lint": "eslint",
     "db:seed": "node --env-file-if-exists=.env.local scripts/seed-admin.mts",
     "verify:auth": "node --env-file-if-exists=.env.local scripts/verify-auth-flow.mjs",
-    "verify:garages": "node --env-file-if-exists=.env.local scripts/verify-admin-garages.mjs"
+    "verify:garages": "node --env-file-if-exists=.env.local scripts/verify-admin-garages.mjs",
+    "verify:factures": "node --env-file-if-exists=.env.local scripts/verify-invoice-editor.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

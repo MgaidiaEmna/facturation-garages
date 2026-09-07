@@ -91,6 +91,26 @@
 --       l'assertion de la section 2, c'est la 19 qui hurle, sur « un garage a
 --       supprimé sa ligne d'abonnement ».)
 --
+-- Phase 5 — chaque ligne a été injectée et vérifiée :
+--   dans save_invoice_draft(), remplacer `v_garage_id uuid := my_garage_id();`
+--     par `coalesce((p_header->>'garage_id')::uuid, my_garage_id())`
+--       le navigateur choisit son locataire         -> section 20 hurle
+--       (première version de la section 20 : le test PASSAIT malgré cette
+--       mutation, parce qu'aucune assertion n'envoyait la clé `garage_id`.
+--       D'où le bloc « 20a bis », qui la glisse volontairement. Mesuré : le
+--       test s'arrête alors DANS ce bloc, mais sur le refus du RLS —
+--       « new row violates row-level security policy » — et non sur son
+--       propre message. C'est la défense en profondeur qui parle : la
+--       policy `invoices_insert` exige déjà `garage_id = my_garage_id()`.
+--       L'assertion reste nécessaire : elle est ce qui hurlerait si cette
+--       policy venait à s'ouvrir en même temps.)
+--   passer save_invoice_draft() en `security definer`
+--       le RLS ne s'applique plus à travers elle : un garage en lecture
+--       seule enregistre quand même               -> section 20 hurle
+--   dans save_invoice_draft(), remplacer `group by l.vat_rate` par
+--     `group by 1` avec un taux constant
+--       la TVA n'est plus ventilée par taux        -> section 20 hurle
+--
 --   PIÈGE : n'ouvrir que le GRANT sur `auth_rate_limit_hit` ne prouve RIEN.
 --   La fonction échoue quand même sur l'absence de droits table + RLS, le
 --   test annonce « bloqué » et il a raison — aucune frontière n'a bougé. Une
@@ -1332,6 +1352,218 @@ select public.expect_blocked(
   'une date de fin déjà passée a été acceptée');
 
 do $$ begin raise notice '19e. Saisies incohérentes : refusées        OK'; end $$;
+
+-- ===========================================================================
+-- 20. Brouillons : chacun chez soi, et les totaux viennent des lignes
+-- ===========================================================================
+-- `save_invoice_draft()` est la seule fonction du projet en SECURITY INVOKER.
+-- Elle n'a besoin d'aucun privilège : ce qu'elle fait, le garage a le droit
+-- de le faire. Il faut donc éprouver deux choses différentes des phases
+-- précédentes :
+--   · que le RLS s'applique encore à travers elle (une fonction `definer`
+--     l'aurait désactivé sans que rien ne le signale) ;
+--   · qu'elle ne prend le garage nulle part ailleurs que dans
+--     `my_garage_id()` — un `garage_id` venu du navigateur serait le retour
+--     du multi-locataire par la porte de service.
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- Le garage A enregistre un brouillon : deux lignes au même taux, une à un
+-- taux différent, pour que le regroupement par taux ait quelque chose à faire.
+do $$
+declare
+  v_inv     invoices;
+  v_lignes  int;
+begin
+  v_inv := save_invoice_draft(
+    null,
+    jsonb_build_object(
+      'client_name',    'Client de A',
+      'client_address', '1 rue A',
+      'issue_date',     current_date::text
+    ),
+    jsonb_build_array(
+      jsonb_build_object('description', 'Vidange',       'quantity', 1, 'unit_price_ht', 80,  'vat_rate', 20),
+      jsonb_build_object('description', 'Main d''œuvre', 'quantity', 2, 'unit_price_ht', 45,  'vat_rate', 20),
+      jsonb_build_object('description', 'Pièce',         'quantity', 1, 'unit_price_ht', 30,  'vat_rate', 5.5),
+      -- Ligne sans désignation : ne doit pas être persistée.
+      jsonb_build_object('description', '   ',           'quantity', 9, 'unit_price_ht', 999, 'vat_rate', 20)
+    ),
+    2
+  );
+
+  if v_inv.garage_id <> 'a0000000-0000-0000-0000-0000000000a1' then
+    raise exception 'FUITE : le brouillon a été rattaché au garage % .', v_inv.garage_id
+      using errcode = 'F0001';
+  end if;
+
+  if v_inv.status <> 'draft' or v_inv.number is not null then
+    raise exception 'Un brouillon ne doit porter aucun numéro (statut %, numéro %).',
+      v_inv.status, v_inv.number;
+  end if;
+
+  select count(*) into v_lignes from invoice_lines where invoice_id = v_inv.id;
+  if v_lignes <> 3 then
+    raise exception 'La ligne sans désignation a été enregistrée (% lignes).', v_lignes;
+  end if;
+
+  -- Totaux : 80 + 90 = 170 à 20 %, 30 à 5,5 %.
+  --   HT       = 200,00
+  --   TVA      = 34,00 + 1,65 = 35,65
+  --   TTC      = 235,65
+  if v_inv.subtotal_ht <> 200.000 then
+    raise exception 'Sous-total erroné : % (200 attendu).', v_inv.subtotal_ht;
+  end if;
+  if v_inv.vat_total <> 35.650 then
+    raise exception 'TVA erronée : % (35,65 attendue).', v_inv.vat_total;
+  end if;
+  if v_inv.total_ttc <> 235.650 then
+    raise exception 'Total TTC erroné : % (235,65 attendu).', v_inv.total_ttc;
+  end if;
+
+  -- Le détail par taux doit porter DEUX taux, pas un seul agrégat.
+  if jsonb_array_length(v_inv.vat_breakdown) <> 2 then
+    raise exception 'Détail de TVA attendu sur 2 taux, obtenu : %', v_inv.vat_breakdown;
+  end if;
+  if (v_inv.vat_breakdown -> 0 ->> 'rate')::numeric <> 20
+     or (v_inv.vat_breakdown -> 0 ->> 'base_ht')::numeric <> 170
+     or (v_inv.vat_breakdown -> 0 ->> 'vat_amount')::numeric <> 34 then
+    raise exception 'Base ou TVA du taux 20 %% incorrecte : %', v_inv.vat_breakdown -> 0;
+  end if;
+  if (v_inv.vat_breakdown -> 1 ->> 'rate')::numeric <> 5.5
+     or (v_inv.vat_breakdown -> 1 ->> 'vat_amount')::numeric <> 1.65 then
+    raise exception 'Base ou TVA du taux 5,5 %% incorrecte : %', v_inv.vat_breakdown -> 1;
+  end if;
+
+  raise notice '20a. Brouillon : rattaché et calculé juste   OK';
+end $$;
+
+-- Le garage passé dans l'en-tête doit être IGNORÉ. C'est la tentative
+-- évidente : glisser le `garage_id` du voisin dans la charge utile. Sans
+-- cette assertion, la section ne prouve rien sur l'origine du locataire —
+-- mesuré : en faisant lire `p_header->>'garage_id'` à la fonction, le test
+-- passait quand même, faute de jamais envoyer cette clé.
+do $$
+declare v_inv invoices;
+begin
+  v_inv := save_invoice_draft(
+    null,
+    jsonb_build_object(
+      'client_name', 'Tentative de locataire',
+      'garage_id',   'c0000000-0000-0000-0000-0000000000c1',
+      'issue_date',  current_date::text
+    ),
+    jsonb_build_array(
+      jsonb_build_object('description', 'Prestation', 'quantity', 1,
+                         'unit_price_ht', 10, 'vat_rate', 20)
+    ),
+    2
+  );
+
+  if v_inv.garage_id <> 'a0000000-0000-0000-0000-0000000000a1' then
+    raise exception
+      'FUITE : le garage_id du navigateur a été retenu (brouillon rattaché à %).',
+      v_inv.garage_id
+      using errcode = 'F0001';
+  end if;
+
+  raise notice '20a bis. Locataire imposé par le client : ignoré OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Ce qu'un garage ne peut pas faire
+-- ---------------------------------------------------------------------------
+-- Reprendre le brouillon d'un autre garage. `save_invoice_draft()` ne le
+-- trouve pas — le RLS l'a filtré avant elle — et lève « introuvable ».
+do $$
+declare v_autre uuid;
+begin
+  -- Le brouillon du garage B, créé au montage du jeu d'essai.
+  v_autre := 'b2000000-0000-0000-0000-0000000000b1';
+
+  begin
+    perform save_invoice_draft(
+      v_autre,
+      jsonb_build_object('client_name', 'Détournement'),
+      jsonb_build_array(
+        jsonb_build_object('description', 'Ligne pirate', 'quantity', 1,
+                           'unit_price_ht', 1, 'vat_rate', 20)
+      ),
+      2
+    );
+    raise exception 'FUITE : un garage a modifié le brouillon d''un autre.'
+      using errcode = 'F0001';
+  exception
+    when sqlstate 'P0002' or insufficient_privilege then
+      null;  -- refus attendu
+  end;
+end $$;
+
+-- Et la facture de B n'a pas bougé d'un centime. Vérifié hors RLS, en tant
+-- que propriétaire : sous le RLS du garage A, l'absence de la ligne ne
+-- prouverait rien — on ne saurait pas si elle est intacte ou filtrée.
+reset role;
+
+do $$
+declare v_nom text;
+begin
+  select client_name into v_nom from invoices
+  where id = 'b2000000-0000-0000-0000-0000000000b1';
+  if v_nom <> 'Client de B' then
+    raise exception 'FUITE : la facture de B a été réécrite (client : %).', v_nom
+      using errcode = 'F0001';
+  end if;
+end $$;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- Insertion directe d'une facture pour un autre garage : déjà couvert en
+-- section 2, rappelé ici parce que c'est la même frontière que défend la
+-- fonction.
+select public.expect_blocked(
+  $q$ insert into invoices (garage_id, client_name)
+      values ('c0000000-0000-0000-0000-0000000000c1', 'Brouillon pirate') $q$,
+  'un garage a créé un brouillon pour un autre garage');
+
+do $$ begin raise notice '20b. Brouillon d''autrui : inaccessible      OK'; end $$;
+
+-- ---------------------------------------------------------------------------
+-- Lecture seule : abonnement échu = plus aucun enregistrement
+-- ---------------------------------------------------------------------------
+-- Le garage C a payé en section 19c ; on le repasse en échu pour éprouver le
+-- refus, puisque c'est la situation que l'éditeur doit annoncer.
+reset role;
+update subscriptions set end_date = current_date - 1
+where garage_id = 'c0000000-0000-0000-0000-0000000000c1';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"cccccccc-0000-0000-0000-000000000003","role":"authenticated"}';
+
+do $$
+begin
+  if has_write_access('c0000000-0000-0000-0000-0000000000c1') then
+    raise exception 'Le garage C devrait être en lecture seule.';
+  end if;
+
+  begin
+    perform save_invoice_draft(
+      null,
+      jsonb_build_object('client_name', 'Malgré la lecture seule'),
+      jsonb_build_array(
+        jsonb_build_object('description', 'Prestation', 'quantity', 1,
+                           'unit_price_ht', 100, 'vat_rate', 20)
+      ),
+      2
+    );
+    raise exception 'FUITE : un garage en lecture seule a enregistré un brouillon.'
+      using errcode = 'F0001';
+  exception
+    when insufficient_privilege then
+      null;  -- refus du RLS : c'est le comportement attendu
+  end;
+
+  raise notice '20c. Lecture seule : enregistrement refusé   OK';
+end $$;
 
 do $$
 begin

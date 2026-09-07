@@ -15,9 +15,10 @@ npm run lint     # ESLint
 npm run db:seed         # crée le compte super administrateur (idempotent)
 npm run verify:auth     # parcours d'authentification de bout en bout
 npm run verify:garages  # espace d'administration des garages (phase 3)
+npm run verify:factures # éditeur de facture (phase 5)
 ```
 
-Les deux scripts `verify:*` pilotent l'application **réellement lancée** en se comportant
+Les scripts `verify:*` pilotent l'application **réellement lancée** en se comportant
 comme un navigateur sans JavaScript (les Server Actions de Next sont rendues en amélioration
 progressive) ; ils partagent `scripts/lib/navigateur.mjs`. Ils exigent la pile Supabase locale,
 `npm run dev` et le seed, et vérifient le **câblage** — actions, proxy, gardes de layout,
@@ -45,7 +46,7 @@ projet la désactive, plutôt que de laisser entrer un compte non vérifié.
 Deux preuves exécutables, à rejouer après toute modification du schéma :
 
 ```bash
-psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql   # frontières (19 sections)
+psql "$DATABASE_URL" -f supabase/tests/rls_isolation.sql   # frontières (20 sections)
 psql "$DATABASE_URL" -f supabase/tests/rate_limit.sql      # le limiteur compte juste
 ```
 
@@ -186,6 +187,7 @@ Deux fonctions SQL portent ce que le RLS seul ne sait pas dire à l'UI :
 | `garage_is_deletable(g)` | aucune facture non-`draft` | `invoices_guard_trg` appliquera la même règle à la cascade ; la recalculer en TypeScript la ferait diverger — même principe que `finalize_block_message()` |
 | `garage_accounts(g)` | comptes de connexion + adresse réelle | l'adresse de connexion vit dans `auth.users`, hors PostgREST ; `garages.email` est une adresse de **contact**, modifiable, et les deux divergent dès la première correction |
 | `register_payment(...)` | encaissement **et** prolongation | deux écritures dans deux tables : en deux appels PostgREST elles ne partagent aucune transaction, et un échec entre les deux laisse un garage qui a payé mais reste bloqué |
+| `save_invoice_draft(...)` | en-tête + lignes d'un brouillon | trois écritures (en-tête, purge des lignes, insertion) : un échec après la purge laisserait un brouillon amputé. **Seule fonction en `security invoker`** — voir ci-dessous |
 
 Les deux sont `security definer` et gardées par `is_admin()` **dans le corps** : un
 non-administrateur obtient `false` / zéro ligne, pas une erreur. Aucune n'ouvre un quatrième
@@ -223,6 +225,38 @@ jamais contre un nom transporté par le formulaire, qui viendrait du même navig
 confirmation. Ordre imposé : le garage d'abord (c'est l'opération qui peut échouer), le compte
 Auth ensuite. L'inverse laisserait, en cas d'échec, un garage vivant que plus personne ne peut
 ouvrir.
+
+### Éditeur de facture (`/app/factures`)
+
+Deux colonnes : saisie à gauche, aperçu temps réel à droite. L'aperçu
+(`components/invoice/invoice-preview.tsx`) est sur fond blanc et sans bleu marine : c'est le
+document, pas l'écran.
+
+`src/lib/invoice/` :
+
+| Fichier | Rôle |
+|---|---|
+| `compute.ts` | totaux, arrondis, ligne vide — **pur**, sans React ni serveur |
+| `types.ts` | formes de données, importables depuis un composant client |
+| `schema.ts` | validation zod du brouillon |
+| `actions.ts` | Server Actions de l'espace garage |
+| `queries.ts` | lectures (`server-only`) |
+
+`compute.ts` et `types.ts` seront consommés **tels quels** par l'export PDF et Factur-X : la
+structuration des données et le calcul ne doivent jamais migrer dans un composant d'affichage.
+Les types vivent dans `types.ts` et non dans `queries.ts` parce que ce dernier importe
+`server-only` — importer un type depuis un module marqué ainsi revient à parier sur son
+effacement par le bundler.
+
+**`save_invoice_draft()` est la seule fonction du projet en `SECURITY INVOKER`.** C'est
+délibéré : elle n'a besoin d'aucun privilège — tout ce qu'elle fait, le garage a le droit de
+le faire. En `invoker`, le RLS continue de s'appliquer à chacune de ses requêtes, donc
+l'isolation et la lecture seule restent l'affaire des policies. Une fonction `definer` aurait
+exigé de réécrire ces contrôles à la main, donc de pouvoir les oublier. Ce qu'elle apporte est
+l'**atomicité**, rien d'autre.
+
+Le `garage_id` d'un brouillon vient de `my_garage_id()`, **jamais d'un paramètre** — un
+`garage_id` transmis dans l'en-tête est ignoré, et la section 20 le prouve.
 
 ### Moteur de facture
 
