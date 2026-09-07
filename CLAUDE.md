@@ -384,12 +384,28 @@ monde : un limiteur en panne ne doit pas devenir une panne d'authentification.
 ### Socle multi-locale (`src/lib/locale/`)
 
 **Toute règle qui dépend du pays vit dans `LocaleConfig`** — devise, décimales, taux de TVA,
-timbre fiscal, champs d'identité du vendeur, mentions légales. Rien de tout cela n'est codé en
-dur ailleurs dans l'app. Ajouter un pays = ajouter un fichier de config + élargir le type
-`LocaleCode`.
+timbre fiscal, fuseau horaire, champs d'identité du vendeur, mentions légales. Rien de tout cela
+n'est codé en dur ailleurs dans l'app. Ajouter un pays = ajouter un fichier de config + élargir le
+type `LocaleCode`.
 
 Formatage des montants et des dates : passer par `src/lib/format.ts`, jamais par un `toFixed()`
 ou un `Intl` en ligne.
+
+### Rien de ce qui est rendu ne dépend de la machine
+
+Les mêmes données rendues sur le serveur puis rejouées à l'hydratation doivent produire le **même
+HTML**, sinon React jette le rendu reçu — et, sur une facture, la date affichée serait fausse pour
+une partie des lecteurs. Trois règles en découlent :
+
+- une date civile (`AAAA-MM-JJ`) s'affiche **épinglée sur UTC** : `new Date("2026-09-07")` vaut
+  minuit UTC, et le fuseau de la machine la reculerait d'un jour à l'ouest de Greenwich.
+  `formatDate()` / `formatDateShort()` s'en chargent ; ne pas rappeler `Intl` à côté ;
+- « quel jour sommes-nous ? » se demande **côté serveur**, avec `todayInLocale()` (fuseau
+  `LocaleConfig.timeZone`), et la réponse descend en propriété jusqu'au composant client ;
+- une clé de ligne de facture est une **constante** ou vient de la base, jamais d'un
+  `Math.random()` : elle sert de `id` / `htmlFor` aux champs, et deux tirages successifs suffisent
+  à casser l'hydratation. `emptyLine()` reçoit donc sa clé en paramètre et reste pure ; les clés
+  créées après coup viennent d'un compteur, dans un gestionnaire d'événement.
 
 ### Storage
 

@@ -82,11 +82,18 @@ export function lineTotal(line: DraftLine, decimals: number): number {
 /**
  * Une ligne vierge, prête à saisir. Le taux par défaut vient de la locale —
  * 20 % en France, et rien de tout cela n'est écrit en dur ici.
+ *
+ * La clé est FOURNIE PAR L'APPELANT, elle n'est pas tirée au sort ici. Ce
+ * module est pur : un `Math.random()` en ferait une fonction qui ne rend pas
+ * deux fois le même résultat, et cette clé finit dans les attributs `id` et
+ * `htmlFor` des champs. Rendue sur le serveur puis rejouée à l'hydratation,
+ * elle donnait deux valeurs différentes — l'erreur « some attributes of the
+ * server rendered HTML didn't match ». Voir `invoice-editor.tsx`.
  */
-export function emptyLine(localeCode?: LocaleCode): DraftLine {
+export function emptyLine(key: string, localeCode?: LocaleCode): DraftLine {
   const locale = getLocale(localeCode);
   return {
-    key: `l-${Math.random().toString(36).slice(2, 10)}`,
+    key,
     description: "",
     unit: "U",
     quantity: 1,

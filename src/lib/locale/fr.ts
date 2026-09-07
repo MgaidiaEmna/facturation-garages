@@ -19,6 +19,7 @@ export const FR_LOCALE: LocaleConfig = {
 
   currency: "EUR",
   intlLocale: "fr-FR",
+  timeZone: "Europe/Paris",
   decimals: 2,
 
   vatRates: [

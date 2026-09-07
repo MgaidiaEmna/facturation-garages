@@ -41,6 +41,15 @@ export interface LocaleConfig {
   currency: string;
   /** Locale Intl utilisée pour formater montants et dates, ex. "fr-FR". */
   intlLocale: string;
+  /**
+   * Fuseau du pays de facturation, ex. "Europe/Paris".
+   *
+   * Sert à répondre à « quel jour sommes-nous ? » sans dépendre de l'horloge
+   * de la machine : un serveur en UTC et un navigateur à Paris ne sont pas du
+   * même jour entre minuit et 2 h. La date d'émission d'une facture française
+   * est la date française, pas celle de l'hébergeur ni celle du visiteur.
+   */
+  timeZone: string;
   /** Nombre de décimales des montants (2 en zone euro, 3 en TND). */
   decimals: number;
 

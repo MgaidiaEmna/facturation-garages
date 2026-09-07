@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { requireGarage } from "@/lib/auth/session";
 import { getDraft, getSellerIdentity } from "@/lib/invoice/queries";
 import { DEFAULT_LOCALE, type LocaleCode } from "@/lib/locale";
+import { todayInLocale } from "@/lib/format";
 import { InvoiceEditor } from "../invoice-editor";
 import { readOnlyReason } from "../read-only";
 
@@ -28,11 +29,14 @@ export default async function EditDraftPage(props: PageProps<"/app/factures/[id]
   // distinguer renseignerait sur les factures d'autrui.
   if (!draft) notFound();
 
+  const locale = (garage.locale as LocaleCode) || DEFAULT_LOCALE;
+
   return (
     <InvoiceEditor
       seller={seller}
       draft={draft}
-      localeCode={(garage.locale as LocaleCode) || DEFAULT_LOCALE}
+      localeCode={locale}
+      today={todayInLocale(locale)}
       canWrite={access.canWrite}
       readOnlyReason={readOnlyReason(garage, access)}
     />

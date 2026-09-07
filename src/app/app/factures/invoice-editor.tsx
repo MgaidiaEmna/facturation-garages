@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Plus, Save, Trash2, TriangleAlert } from "lucide-react";
@@ -27,6 +27,18 @@ import { getLocale, type LocaleCode } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 
 /**
+ * Clé de la ligne vierge offerte à l'ouverture d'un brouillon neuf.
+ *
+ * Une constante, et non une valeur tirée au sort : elle sert d'attribut `id`
+ * aux champs de la ligne et de `htmlFor` à leurs étiquettes. Le serveur rend
+ * ce composant une première fois, le navigateur le rejoue à l'hydratation ;
+ * si les deux ne produisent pas le MÊME identifiant, React signale que
+ * « some attributes of the server rendered HTML didn't match » et jette le
+ * HTML reçu. Les clés ne servent qu'au rendu — aucune ne part en base.
+ */
+const PREMIERE_LIGNE = "ligne-1";
+
+/**
  * Éditeur de facture : saisie à gauche, aperçu à droite, en temps réel.
  *
  * L'état vit ici, dans le navigateur, le temps de la saisie. Rien de ce qu'il
@@ -41,6 +53,7 @@ export function InvoiceEditor({
   seller,
   draft,
   localeCode,
+  today,
   canWrite,
   readOnlyReason,
 }: {
@@ -48,6 +61,13 @@ export function InvoiceEditor({
   /** Brouillon repris, ou `null` pour une création. */
   draft: InvoiceDraft | null;
   localeCode: LocaleCode;
+  /**
+   * Date du jour, calculée par le SERVEUR dans le fuseau de la locale. Elle
+   * arrive en propriété plutôt que d'être relue ici : le navigateur qui
+   * rejoue le rendu à l'hydratation doit trouver exactement la même valeur
+   * que celle déjà écrite dans le HTML.
+   */
+  today: string;
   canWrite: boolean;
   readOnlyReason: string | null;
 }) {
@@ -59,13 +79,22 @@ export function InvoiceEditor({
   const [clientAddress, setClientAddress] = useState(draft?.clientAddress ?? "");
   const [clientPhone, setClientPhone] = useState(draft?.clientPhone ?? "");
   const [clientVatNumber, setClientVatNumber] = useState(draft?.clientVatNumber ?? "");
-  const [issueDate, setIssueDate] = useState(draft?.issueDate ?? today());
+  const [issueDate, setIssueDate] = useState(draft?.issueDate ?? today);
   const [serviceDate, setServiceDate] = useState(draft?.serviceDate ?? "");
   const [notes, setNotes] = useState(draft?.notes ?? "");
   const [lines, setLines] = useState<DraftLine[]>(
-    draft?.lines.length ? draft.lines : [emptyLine(localeCode)],
+    // `PREMIERE_LIGNE` est une constante, pas un tirage : ce rendu-ci a lieu
+    // deux fois — sur le serveur, puis à l'hydratation — et les `id` qui en
+    // découlent doivent coïncider au caractère près.
+    draft?.lines.length ? draft.lines : [emptyLine(PREMIERE_LIGNE, localeCode)],
   );
   const [saving, startSaving] = useTransition();
+
+  // Les clés suivantes ne naissent que dans un gestionnaire d'événement, donc
+  // jamais pendant un rendu serveur : un compteur suffit, et il ne peut pas
+  // entrer en collision avec les identifiants de lignes déjà en base.
+  const compteurLignes = useRef(0);
+  const nouvelleCle = () => `${PREMIERE_LIGNE}-${++compteurLignes.current}`;
 
   const totals = computeTotals(lines, { localeCode, vatExempt: seller.vatExempt });
 
@@ -76,12 +105,20 @@ export function InvoiceEditor({
   }
 
   function removeLine(key: string) {
+    // La clé est tirée AVANT le `setLines` : la fonction de mise à jour reste
+    // pure, donc rejouable sans effet de bord.
+    const remplacement = emptyLine(nouvelleCle(), localeCode);
     setLines((current) => {
       const rest = current.filter((line) => line.key !== key);
       // Ne jamais laisser l'éditeur sans aucune ligne : on retomberait sur un
       // écran vide sans savoir par où reprendre.
-      return rest.length > 0 ? rest : [emptyLine(localeCode)];
+      return rest.length > 0 ? rest : [remplacement];
     });
+  }
+
+  function addLine() {
+    const ligne = emptyLine(nouvelleCle(), localeCode);
+    setLines((current) => [...current, ligne]);
   }
 
   function save() {
@@ -270,7 +307,7 @@ export function InvoiceEditor({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setLines((current) => [...current, emptyLine(localeCode)])}
+                onClick={addLine}
               >
                 <Plus aria-hidden />
                 Ajouter une ligne
@@ -454,12 +491,4 @@ function LineRow({
 function toNumber(value: string): number {
   if (value.trim() === "") return Number.NaN;
   return Number(value.replace(",", "."));
-}
-
-/** Aujourd'hui en `AAAA-MM-JJ`, heure locale. */
-function today(): string {
-  const now = new Date();
-  const mois = String(now.getMonth() + 1).padStart(2, "0");
-  const jour = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${mois}-${jour}`;
 }
