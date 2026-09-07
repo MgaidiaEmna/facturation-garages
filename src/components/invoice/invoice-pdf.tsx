@@ -55,14 +55,26 @@ function pdfSafe(texte: string): string {
 }
 
 const styles = StyleSheet.create({
+  /**
+   * ZONE DE CONTENU : 842 - 30 - 34 = 778 pt. Ce budget n'est pas décoratif.
+   *
+   * Le pied est INSÉCABLE (`wrap={false}`) et haut d'environ 120 pt : dès que
+   * le corps dépasse ~655 pt, il ne tient plus dans ce qui reste et bascule
+   * EN ENTIER sur une seconde page, laissant la première à moitié vide. Une
+   * facture d'atelier de dix lignes tombait exactement dans ce cas.
+   *
+   * D'où des marges et des interlignes mesurés plutôt que confortables :
+   * chaque point gagné ici est un point de contenu qui tient sur la feuille.
+   * Avant de rallonger quoi que ce soit, mesurer — pas estimer.
+   */
   page: {
-    paddingTop: 40,
-    paddingBottom: 52,
-    paddingHorizontal: 42,
+    paddingTop: 30,
+    paddingBottom: 34,
+    paddingHorizontal: 40,
     fontSize: 9.5,
     fontFamily: "Helvetica",
     color: C.encre,
-    lineHeight: 1.55,
+    lineHeight: 1.4,
     flexDirection: "column",
   },
 
@@ -88,15 +100,16 @@ const styles = StyleSheet.create({
   /** Le logo tient la droite ; il est le premier repère visuel du document. */
   enteteDroite: { flexShrink: 0, maxWidth: "40%", alignItems: "flex-end" },
 
-  logo: { maxHeight: 76, maxWidth: 200, marginBottom: 6, objectFit: "contain" },
+  logo: { maxHeight: 68, maxWidth: 190, marginBottom: 5, objectFit: "contain" },
   logoNom: { fontSize: 12, fontFamily: "Helvetica-Bold", textAlign: "right" },
 
   /** Grand, en accent : à 30 pt le seuil « grand texte » est largement tenu. */
-  titre: { fontSize: 30, fontFamily: "Helvetica-Bold", color: C.accent },
-  numero: { fontSize: 12, fontFamily: "Helvetica-Bold", marginTop: 1 },
-  numeroAbsent: { fontSize: 10, marginTop: 2, color: C.discret },
+  titre: { fontSize: 27, fontFamily: "Helvetica-Bold", color: C.accent },
+  /** Le numéro, juste sous le titre : c'est la référence qu'on cherche. */
+  numero: { fontSize: 13.5, fontFamily: "Helvetica-Bold", letterSpacing: 0.3 },
+  numeroAbsent: { fontSize: 10, color: C.discret },
   etat: {
-    marginTop: 5,
+    marginTop: 4,
     alignSelf: "flex-start",
     backgroundColor: C.accentPale,
     borderRadius: 9,
@@ -107,15 +120,15 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
     letterSpacing: 0.5,
   },
-  meta: { marginTop: 9, fontSize: 8.5, color: C.attenue },
+  meta: { marginTop: 6, fontSize: 8.5, color: C.attenue },
   metaValeur: { color: C.encre, fontFamily: "Helvetica-Bold" },
 
   // ------------------------------------------- vendeur et client, en regard
   /** Deux cartouches arrondies, côte à côte : qui vend, à qui. */
-  parties: { marginTop: 24, flexDirection: "row", justifyContent: "space-between", gap: 14 },
-  carte: { width: "48.5%", backgroundColor: C.surface, borderRadius: 10, padding: 13 },
+  parties: { marginTop: 16, flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  carte: { width: "48.5%", backgroundColor: C.surface, borderRadius: 9, padding: 10 },
   /** Le bloc client est teinté : c'est lui qu'on cherche des yeux en premier. */
-  carteClient: { width: "48.5%", backgroundColor: C.accentPale, borderRadius: 10, padding: 13 },
+  carteClient: { width: "48.5%", backgroundColor: C.accentPale, borderRadius: 9, padding: 10 },
   surtitre: {
     fontSize: 7,
     color: C.accentTexte,
@@ -129,17 +142,17 @@ const styles = StyleSheet.create({
 
   // ---------------------------------------------------------------- tableau
   /** Aucun filet : ce sont les tuiles alternées qui tiennent les lignes. */
-  table: { marginTop: 26 },
+  table: { marginTop: 18 },
   tableEntete: {
     flexDirection: "row",
-    paddingBottom: 7,
+    paddingBottom: 5,
     paddingHorizontal: 7,
     fontSize: 7,
     color: C.accentTexte,
     fontFamily: "Helvetica-Bold",
     letterSpacing: 1.1,
   },
-  ligne: { flexDirection: "row", paddingVertical: 8, paddingHorizontal: 7, borderRadius: 6 },
+  ligne: { flexDirection: "row", paddingVertical: 5, paddingHorizontal: 7, borderRadius: 6 },
   lignePaire: { backgroundColor: C.surface },
   colDesignation: { flexGrow: 1, flexShrink: 1, paddingRight: 8, fontFamily: "Helvetica-Bold" },
   colQte: { width: 36, textAlign: "right", paddingHorizontal: 3 },
@@ -148,12 +161,12 @@ const styles = StyleSheet.create({
   colTva: { width: 42, textAlign: "right", paddingHorizontal: 3 },
   colTotal: { width: 68, textAlign: "right", paddingLeft: 6, fontFamily: "Helvetica-Bold" },
   cellule: { color: C.texte },
-  tableVide: { paddingVertical: 24, textAlign: "center", color: C.discret },
+  tableVide: { paddingVertical: 20, textAlign: "center", color: C.discret },
 
   // ----------------------------------------------------------------- totaux
-  totaux: { marginTop: 18, alignItems: "flex-end" },
+  totaux: { marginTop: 13, alignItems: "flex-end" },
   totauxBloc: { width: 248 },
-  totalRang: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
+  totalRang: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 1 },
   totalLibelle: { color: C.attenue },
   totalValeur: { color: C.encre },
   /**
@@ -165,21 +178,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 10,
-    paddingVertical: 9,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    marginTop: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 15,
+    borderRadius: 18,
     backgroundColor: C.accent,
     color: C.surAccent,
     fontSize: 14,
     fontFamily: "Helvetica-Bold",
   },
 
-  note: { marginTop: 18, backgroundColor: C.surface, borderRadius: 10, padding: 13 },
+  note: { marginTop: 14, backgroundColor: C.surface, borderRadius: 9, padding: 10 },
   noteTexte: { color: C.texte },
 
   // ------------------------------------------------------------------- pied
-  pied: { marginTop: 24, backgroundColor: C.surface, borderRadius: 10, padding: 13 },
+  pied: { marginTop: 16, backgroundColor: C.surface, borderRadius: 9, padding: 10 },
   piedCols: { flexDirection: "row", justifyContent: "space-between", gap: 20 },
   piedColonne: { width: "48%" },
   piedNom: { color: C.encre, fontFamily: "Helvetica-Bold", fontSize: 9, marginBottom: 1 },
@@ -191,7 +204,7 @@ const styles = StyleSheet.create({
    * qu'on ne peut pas lire n'est pas une mention.
    */
   mentionsFines: {
-    marginTop: 9,
+    marginTop: 6,
     paddingHorizontal: 2,
     fontSize: 7,
     color: C.attenue,
@@ -201,9 +214,9 @@ const styles = StyleSheet.create({
 
   numeroPage: {
     position: "absolute",
-    bottom: 24,
-    left: 42,
-    right: 42,
+    bottom: 14,
+    left: 40,
+    right: 40,
     textAlign: "center",
     fontSize: 7,
     color: C.discret,

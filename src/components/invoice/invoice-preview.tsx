@@ -121,13 +121,15 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
       {/* ---------- En-tête : l'objet à gauche, l'émetteur à droite ---------- */}
       <header className="flex flex-wrap items-start justify-between gap-6">
         <div>
-          <p className="text-[34px] leading-none font-semibold" style={{ color: C.accent }}>
+          <p className="text-[31px] leading-none font-semibold" style={{ color: C.accent }}>
             Facture
           </p>
           {document.number ? (
-            <p className="mt-1.5 text-[15px] font-semibold tabular-nums">{document.number}</p>
+            <p className="mt-1.5 text-[17px] font-semibold tracking-wide tabular-nums">
+              {document.number}
+            </p>
           ) : (
-            <p className="mt-1.5 text-[13px]" style={{ color: C.discret }}>
+            <p className="mt-1.5 text-[12px]" style={{ color: C.discret }}>
               Numéro attribué à l&apos;émission
             </p>
           )}
@@ -191,8 +193,8 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
           est teintée — c'est elle qu'on cherche des yeux en premier. Sur un
           écran étroit elles se replient l'une sous l'autre ; le PDF, lui, a
           toujours la largeur d'une A4. */}
-      <section className="mt-6 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl p-4" style={{ backgroundColor: C.surface }}>
+      <section className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl p-3.5" style={{ backgroundColor: C.surface }}>
           <p className="text-[11px] font-semibold uppercase" style={surtitre}>
             Vendeur
           </p>
@@ -215,7 +217,7 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
           )}
         </div>
 
-        <div className="rounded-xl p-4" style={{ backgroundColor: C.accentPale }}>
+        <div className="rounded-xl p-3.5" style={{ backgroundColor: C.accentPale }}>
           <p className="text-[11px] font-semibold uppercase" style={surtitre}>
             Facturé à
           </p>
@@ -238,7 +240,7 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
       {/* Aucun filet : ce sont les tuiles alternées qui tiennent les lignes.
           `border-separate` avec un espacement nul permet d'arrondir les coins
           d'une ligne entière, ce qu'un `border-collapse` interdit. */}
-      <section className="mt-7">
+      <section className="mt-6">
         <table className="w-full border-separate border-spacing-0 text-[12.5px]">
           <thead>
             <tr className="text-left text-[11px] font-semibold uppercase" style={surtitre}>
@@ -272,31 +274,31 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
                     index % 2 === 0 ? { backgroundColor: C.surface } : undefined
                   }
                 >
-                  <td className="rounded-l-lg px-2 py-2.5 font-medium">{line.description}</td>
+                  <td className="rounded-l-lg px-2 py-2 font-medium">{line.description}</td>
                   <td
-                    className="px-2 py-2.5 text-right tabular-nums"
+                    className="px-2 py-2 text-right tabular-nums"
                     style={{ color: C.texte }}
                   >
                     {line.quantity}
                   </td>
-                  <td className="px-2 py-2.5" style={{ color: C.texte }}>
+                  <td className="px-2 py-2" style={{ color: C.texte }}>
                     {line.unit}
                   </td>
                   <td
-                    className="px-2 py-2.5 text-right tabular-nums"
+                    className="px-2 py-2 text-right tabular-nums"
                     style={{ color: C.texte }}
                   >
                     {formatAmount(line.unitPriceHt, localeCode)}
                   </td>
                   {seller.vatExempt ? null : (
                     <td
-                      className="px-2 py-2.5 text-right tabular-nums"
+                      className="px-2 py-2 text-right tabular-nums"
                       style={{ color: C.texte }}
                     >
                       {formatVatRate(line.vatRate, localeCode)}
                     </td>
                   )}
-                  <td className="rounded-r-lg px-2 py-2.5 text-right font-semibold tabular-nums">
+                  <td className="rounded-r-lg px-2 py-2 text-right font-semibold tabular-nums">
                     {formatAmount(line.lineTotalHt, localeCode)}
                   </td>
                 </tr>
@@ -307,7 +309,7 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
       </section>
 
       {/* ---------- Totaux ---------- */}
-      <section className="mt-6 flex justify-end">
+      <section className="mt-5 flex justify-end">
         <dl className="w-full max-w-xs space-y-1 text-[12.5px]">
           <div className="flex justify-between gap-4">
             <dt style={{ color: C.attenue }}>Total HT</dt>
@@ -347,7 +349,7 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
               texte » de WCAG, donc le blanc sur l'accent (3,5:1) y est
               conforme. Voir `theme.ts` avant de réduire cette taille. */}
           <div
-            className="mt-3 flex items-center justify-between gap-4 rounded-full px-5 py-2.5 text-[19px] font-semibold"
+            className="mt-2.5 flex items-center justify-between gap-4 rounded-full px-5 py-2 text-[19px] font-semibold"
             style={{ backgroundColor: C.accent, color: C.surAccent }}
           >
             <dt>Total TTC</dt>
@@ -357,7 +359,7 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
       </section>
 
       {document.notes ? (
-        <section className="mt-6 rounded-xl p-4" style={{ backgroundColor: C.surface }}>
+        <section className="mt-5 rounded-xl p-3.5" style={{ backgroundColor: C.surface }}>
           <p className="text-[11px] font-semibold uppercase" style={surtitre}>
             Note
           </p>
@@ -372,13 +374,13 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
           l'espace restant et pousse le pied au bas de la feuille. Le grand
           blanc entre le tableau et les mentions est voulu — c'est ce que
           fait le PDF, et les deux doivent se ressembler. */}
-      <footer className="mt-auto pt-8">
+      <footer className="mt-auto pt-6">
         {/* Identité légale du vendeur : descendue de l'en-tête, jamais retirée.
             Le Code de commerce l'exige sur la facture, pas en haut de la
             facture. Deux colonnes dans une cartouche — identification à
             gauche, forme sociale et banque à droite. La LISTE, elle, n'a pas
             changé. */}
-        <div className="rounded-xl p-4 text-[11px]" style={{ backgroundColor: C.surface }}>
+        <div className="rounded-xl p-3.5 text-[11px]" style={{ backgroundColor: C.surface }}>
           {identiteComplete ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
