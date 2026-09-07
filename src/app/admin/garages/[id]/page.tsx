@@ -21,12 +21,14 @@ import {
   PremiumBadge,
 } from "@/components/admin/garage-badges";
 import { ResetPasswordDialog } from "@/app/admin/comptes/reset-password-dialog";
+import { listLogosForGarage } from "@/lib/logos/queries";
 import { getGarageDetail } from "@/lib/admin/queries";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { DeleteGarageDialog } from "./delete-garage-dialog";
 import { SubscriptionCard } from "./subscription-card";
 import { GarageForm } from "./garage-form";
 import { GarageToggles } from "./garage-toggles";
+import { GarageLogo } from "./garage-logo";
 
 export const metadata: Metadata = {
   title: "Fiche garage — Administration",
@@ -42,6 +44,10 @@ export default async function GarageDetailPage(props: PageProps<"/admin/garages/
 
   const garage = await getGarageDetail(id);
   if (!garage) notFound();
+
+  // `logos_select` autorise `is_admin()` : l'administrateur voit la
+  // bibliothèque de n'importe quel garage, ce dont cette fiche a besoin.
+  const logos = await listLogosForGarage(id);
 
   return (
     <div className="space-y-8">
@@ -150,6 +156,25 @@ export default async function GarageDetailPage(props: PageProps<"/admin/garages/
         </CardHeader>
         <CardContent>
           <GarageForm garage={garage} />
+        </CardContent>
+      </Card>
+
+      {/* --- Logo --- */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Identité visuelle</CardTitle>
+          <CardDescription>
+            Le logo imprimé en tête des factures de ce garage. Sans logo, ses
+            factures portent sa dénomination en texte — c&apos;est conforme.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <GarageLogo
+            garageId={garage.id}
+            garageName={garage.name}
+            logos={logos}
+            premium={garage.logoManagementEnabled}
+          />
         </CardContent>
       </Card>
 

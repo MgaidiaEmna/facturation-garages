@@ -26,6 +26,14 @@ export interface SellerIdentity {
   paymentTermDays: number;
   latePaymentPenaltyRate: number;
   recoveryIndemnity: number;
+  /**
+   * Chemin du logo dans le bucket privé, ou `null`.
+   *
+   * Un CHEMIN, pas une URL : le bucket est privé, et une URL signée expire.
+   * C'est à l'écran qui affiche de la signer, avec la session de la personne
+   * — donc sous les policies Storage.
+   */
+  logoPath: string | null;
 }
 
 /** Coordonnées d'une partie (le client), saisies à chaque facture. */
@@ -81,7 +89,11 @@ export interface IssuedInvoice {
   notes: string;
   lines: DraftLine[];
   totals: InvoiceTotals;
-  /** Reconstituée depuis `seller_snapshot` et les colonnes gelées. */
+  /**
+   * Reconstituée depuis `seller_snapshot` et les colonnes gelées — logo
+   * compris : `logo_path` y a été figé à l'émission, donc la facture d'hier
+   * garde le logo d'hier même si la bibliothèque a changé depuis.
+   */
   seller: SellerIdentity;
   /** `garages.locale` au jour de l'émission. */
   locale: string;
@@ -106,5 +118,7 @@ export interface InvoiceDraft {
   issueDate: string;
   serviceDate: string;
   notes: string;
+  /** Logo choisi pour CETTE facture. `null` : celui du garage s'applique. */
+  logoId: string | null;
   lines: DraftLine[];
 }

@@ -22,6 +22,12 @@ export default async function GarageLayout({ children }: LayoutProps<"/app">) {
         { href: "/app/factures", label: "Factures" },
         { href: "/app/clients", label: "Clients" },
         { href: "/app/prestations", label: "Prestations" },
+        // Onglet « premium ». Le cacher est une commodité, pas une barrière :
+        // `/app/logos` répond 404 sans le drapeau, et les policies refusent
+        // l'écriture de toute façon.
+        ...(context.garage.logoManagementEnabled
+          ? [{ href: "/app/logos", label: "Mes logos" }]
+          : []),
       ]}
     >
       {children}

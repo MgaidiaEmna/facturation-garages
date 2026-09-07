@@ -43,6 +43,7 @@ export function InvoicePreview({
   number = null,
   dueDate = null,
   totals,
+  logoUrl = null,
 }: {
   seller: SellerIdentity;
   client: InvoiceParty;
@@ -59,6 +60,8 @@ export function InvoicePreview({
   dueDate?: string | null;
   /** Totaux écrits par la base, pour une facture émise. */
   totals?: InvoiceTotals;
+  /** URL signée du logo. `null` : l'en-tête reste le nom en texte. */
+  logoUrl?: string | null;
 }) {
   const document = buildInvoiceDocument({
     seller,
@@ -72,6 +75,7 @@ export function InvoicePreview({
     number,
     dueDate,
     totals,
+    logoUrl,
   });
 
   return <InvoiceDocumentView document={document} />;
@@ -88,8 +92,18 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
       {/* ---------- En-tête : vendeur ---------- */}
       <header className="flex flex-wrap items-start justify-between gap-6 border-b border-zinc-300 pb-6">
         <div className="space-y-1">
-          {/* La bibliothèque de logos arrive en phase 9 : d'ici là, le nom
-              du garage tient le haut de la facture. */}
+          {/* Le logo remplace le nom en tête quand il y en a un — sinon le nom
+              tient le haut de la facture, comme avant la phase 9.
+              `<img>` et non un composant d'image optimisée : l'URL est signée
+              et expire, elle n'a rien à faire dans un cache partagé. */}
+          {seller.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={seller.logoUrl}
+              alt={seller.name}
+              className="mb-2 max-h-16 w-auto max-w-[220px] object-contain"
+            />
+          ) : null}
           <p className="text-lg font-semibold text-zinc-900">{seller.name}</p>
 
           {seller.identityLines.length === 0 ? (

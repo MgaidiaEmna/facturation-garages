@@ -61,6 +61,16 @@ export interface DocumentLine {
 export interface DocumentSeller {
   name: string;
   /**
+   * Où trouver le logo — ou `null` : l'en-tête reste alors le nom en texte.
+   *
+   * UN SEUL champ pour les deux rendus, chacun recevant la forme qu'il sait
+   * consommer : l'écran une URL signée (le bucket est privé), le PDF une
+   * `data:` URI dont les octets ont été téléchargés par le serveur. Deux
+   * champs auraient rouvert la porte à deux logos différents sur le même
+   * document.
+   */
+  logoUrl: string | null;
+  /**
    * Identité légale ligne à ligne, DANS L'ORDRE D'IMPRESSION. Vide quand la
    * fiche n'a rien : c'est au rendu de le signaler, pas au modèle de mentir.
    */
@@ -133,6 +143,8 @@ export interface BuildInvoiceDocumentInput {
    * a écrit.
    */
   totals?: InvoiceTotals;
+  /** Logo résolu par l'appelant : URL signée à l'écran, `data:` URI en PDF. */
+  logoUrl?: string | null;
 }
 
 const vide = (valeur: string | null | undefined): string | null => {
@@ -190,6 +202,7 @@ export function buildInvoiceDocument(
 
     seller: {
       name: seller.name,
+      logoUrl: input.logoUrl ?? null,
       identityLines: sellerIdentityLines(seller),
       vatExempt: seller.vatExempt,
       paymentTermDays: seller.paymentTermDays,

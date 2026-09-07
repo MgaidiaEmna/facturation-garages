@@ -198,6 +198,38 @@ grant execute on function public.expect_blocked(text, text) to authenticated;
 --   seule (22d). Le reste y est de la redondance assumée : la section décrit
 --   la frontière du point de vue des écrans de la phase 7.
 
+-- Phase 9 — chaque mutation a été injectée et vérifiée :
+--   drop trigger logos_guard_trg on logos;
+--       -> section 23c hurle : « Le refus ne vient pas de logos_guard_trg »
+--       ATTENTION à ce que cette mutation apprend. La suppression reste
+--       REFUSÉE sans ce trigger : `invoices.logo_id` est `on delete set null`,
+--       la cascade tente un UPDATE sur une facture émise, et
+--       `invoices_guard_trg` le rejette depuis la phase 1. Ce que la phase 9
+--       ajoute, c'est un message compréhensible et `logo_is_deletable()` pour
+--       que l'écran prévienne AVANT le clic. La section vérifie donc le refus
+--       ET SA PROVENANCE — sans quoi elle serait passée au vert avec le
+--       trigger retiré, ce qui a bien failli arriver.
+--   drop index logos_one_default_per_garage_idx;
+--       -> section 23a hurle (« deux logos par défaut coexistent »)
+--       Cet index date de la PHASE 1 : la phase 9 ne l'a pas ajouté. Une
+--       première version de la migration en créait un doublon sous un nom
+--       voisin — retiré après vérification.
+--   create or replace function logo_is_deletable(l uuid) returns boolean
+--     language sql stable security definer set search_path = public as
+--     $m$ select true $m$;
+--       ment à l'UI sur ce qui est supprimable -> section 23c hurle
+--
+--   L'isolation du STOCKAGE ne se prouve PAS ici : `rls_isolation.sql` ne voit
+--   que la table `storage.objects`, et sur un PostgreSQL nu elle tourne sur un
+--   stub. `npm run verify:logos` téléverse et télécharge pour de bon contre le
+--   service Storage. Trois mutations y ont été injectées, chacune détectée :
+--     · `logos_objects_insert` sans `(storage.foldername(name))[1] =
+--       my_garage_id()::text` -> « il ne téléverse pas chez le voisin » tombe
+--     · `logos_objects_insert` sans `can_manage_logos()`
+--       -> « le garage standard ne téléverse rien » tombe
+--     · `logos_objects_select` ouvert à tout le bucket
+--       -> « il ne lit pas le fichier du voisin » et la signature tombent
+
 -- ---------------------------------------------------------------------------
 -- Jeu d'essai (créé en tant que propriétaire, hors RLS)
 -- ---------------------------------------------------------------------------
@@ -1980,6 +2012,330 @@ select public.expect_blocked(
   'un garage en lecture seule a créé une prestation');
 
 do $$ begin raise notice '22e. Abonnement échu : écriture fermée .. OK'; end $$;
+
+-- ===========================================================================
+-- 23. Bibliothèque de logos (phase 9)
+-- ===========================================================================
+-- Les policies de `logos` et du bucket existent depuis la phase 1, et la
+-- section 8 éprouve déjà le drapeau premium. Ce que la phase 9 AJOUTE, ce sont
+-- trois règles neuves, et ce sont elles qu'on vérifie ici :
+--
+--   · le refus COMPRÉHENSIBLE de supprimer un logo déjà émis ;
+--   · un logo porté par une facture ÉMISE ne se supprime plus ;
+--   · un `logo_id` venu du navigateur n'est retenu que s'il est au garage.
+--
+-- L'isolation du STOCKAGE lui-même — le vrai service, pas la table
+-- `storage.objects` — est éprouvée par `npm run verify:logos`, qui téléverse
+-- et télécharge pour de bon. C'était la réserve du projet : elle est levée là,
+-- pas ici.
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- 23a. Un seul logo par défaut
+-- ---------------------------------------------------------------------------
+-- Le garage A est premium et possède déjà « Logo A », posé par défaut au
+-- montage du jeu d'essai.
+do $$
+declare v_defauts int;
+begin
+  insert into logos (garage_id, storage_path, label, is_default)
+  values ('a0000000-0000-0000-0000-0000000000a1',
+          'a0000000-0000-0000-0000-0000000000a1/second.png', 'Second logo', false);
+
+  select count(*) into v_defauts
+  from logos
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1' and is_default;
+
+  if v_defauts <> 1 then
+    raise exception 'Le garage A a % logos par défaut au lieu d''un.', v_defauts;
+  end if;
+
+  raise notice '23a. Bibliothèque : un logo par défaut .. OK';
+end $$;
+
+-- Deux défauts d'un coup : l'index partiel refuse. Cet index date de la phase 1
+-- (`logos_one_default_per_garage_idx`) — la section le vérifie parce que la
+-- bibliothèque s'appuie dessus, pas parce que la phase 9 l'aurait ajouté.
+-- `expect_blocked` n'attrape pas `unique_violation`, on l'éprouve donc
+-- explicitement.
+do $$
+begin
+  begin
+    update logos set is_default = true
+    where garage_id = 'a0000000-0000-0000-0000-0000000000a1'
+      and storage_path like '%second.png';
+
+    raise exception 'FUITE : deux logos par défaut coexistent pour un même garage.'
+      using errcode = 'F0001';
+  exception
+    when sqlstate 'F0001' then
+      raise;
+    when unique_violation then
+      null;  -- refus attendu : c'est l'index qui parle
+  end;
+
+  raise notice '23a bis. Deuxième défaut : refusé ....... OK';
+end $$;
+
+-- `set_default_logo()` sait, elle, faire la bascule : les deux écritures dans
+-- une seule transaction. Sans elle, l'index rendrait le changement impossible.
+do $$
+declare
+  v_second uuid;
+  v_defauts int;
+begin
+  select id into v_second from logos
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1'
+    and storage_path like '%second.png';
+
+  perform set_default_logo(v_second);
+
+  select count(*) into v_defauts
+  from logos
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1' and is_default;
+
+  if v_defauts <> 1 then
+    raise exception 'Après bascule, % logos par défaut.', v_defauts;
+  end if;
+  if not (select is_default from logos where id = v_second) then
+    raise exception 'La bascule n''a pas posé le nouveau défaut.';
+  end if;
+
+  raise notice '23a ter. Bascule du défaut : atomique .. OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 23b. L'émission gèle le CHEMIN du logo
+-- ---------------------------------------------------------------------------
+-- C'est ce gel qui permet à l'écran et au PDF de relire une facture émise sans
+-- jamais consulter `logos`. Et c'est cette facture-là qui verrouillera son logo
+-- à la section suivante.
+--
+-- On ÉMET une facture portant le logo. On ne le rattache pas après coup à une
+-- facture déjà émise : `invoices_guard_trg` le refuserait, `logo_id` figurant
+-- dans sa liste d'immuabilité — ce qui est exactement la protection voulue.
+do $$
+declare
+  v_id     uuid;
+  v_inv    invoices;
+  v_logo   uuid;
+  v_chemin text;
+begin
+  select id, storage_path into v_logo, v_chemin from logos
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1' and is_default
+  limit 1;
+
+  insert into invoices (garage_id, client_name, logo_id)
+  values ('a0000000-0000-0000-0000-0000000000a1', 'Client avec logo', v_logo)
+  returning id into v_id;
+
+  insert into invoice_lines (invoice_id, description, quantity, unit_price_ht, vat_rate)
+  values (v_id, 'Prestation', 1, 100, 20);
+
+  v_inv := finalize_invoice(v_id, 2);
+
+  if v_inv.seller_snapshot->>'logo_path' is distinct from v_chemin then
+    raise exception 'Le chemin du logo n''a pas été gelé (% au lieu de %).',
+      coalesce(v_inv.seller_snapshot->>'logo_path', '<absent>'), v_chemin;
+  end if;
+
+  if v_inv.logo_id is distinct from v_logo then
+    raise exception 'La facture émise ne porte pas le logo choisi.';
+  end if;
+
+  raise notice '23b. Émission : chemin du logo gelé .... OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 23c. Un logo porté par une facture émise ne se supprime plus
+-- ---------------------------------------------------------------------------
+-- DEUX barrières indépendantes, et il faut les distinguer — sans quoi cette
+-- section passerait au vert pour la mauvaise raison :
+--
+--   1. `invoices.logo_id` est `on delete set null`, donc la cascade tente un
+--      UPDATE sur une facture émise, que `invoices_guard_trg` rejette. Cette
+--      protection EXISTE DEPUIS LA PHASE 1 — mesuré : en retirant
+--      `logos_guard_trg`, la suppression reste refusée.
+--   2. `logos_guard_trg`, ajouté en phase 9, refuse d'abord et surtout avec un
+--      message que la personne peut comprendre.
+--
+-- On vérifie donc le refus ET SA PROVENANCE. Se contenter du refus rendrait le
+-- test insensible au retrait du trigger de la phase 9.
+do $$
+declare
+  v_logo    uuid;
+  v_message text;
+begin
+  select id into v_logo from logos
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1' and is_default
+  limit 1;
+
+  -- L'UI le sait AVANT le clic, par la même règle que le trigger.
+  if logo_is_deletable(v_logo) then
+    raise exception
+      'FUITE : logo_is_deletable() dit « oui » sur un logo porté par une facture émise.'
+      using errcode = 'F0001';
+  end if;
+
+  begin
+    delete from logos where id = v_logo;
+    raise exception 'FUITE : un logo porté par une facture émise a été supprimé.'
+      using errcode = 'F0001';
+  exception
+    when sqlstate 'F0001' then
+      raise;
+    when others then
+      v_message := sqlerrm;  -- refus attendu : on regarde QUI l'a prononcé
+  end;
+
+  if v_message not like '%factures émises%' then
+    raise exception
+      'Le refus ne vient pas de logos_guard_trg : « % ». La suppression est '
+      'bien bloquée, mais le message est incompréhensible pour la personne '
+      'qui a cliqué sur la corbeille d''un logo.', v_message;
+  end if;
+
+  raise notice '23c. Logo d''une facture émise : figé ... OK';
+end $$;
+
+-- La facture émise porte toujours son logo : la cascade n'a pas eu lieu.
+reset role;
+
+do $$
+begin
+  if exists (
+    select 1 from invoices
+    where client_name = 'Client avec logo' and status = 'final' and logo_id is null
+  ) then
+    raise exception 'FUITE : la facture émise a perdu son logo.' using errcode = 'F0001';
+  end if;
+end $$;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- Un logo qui ne sert à aucune facture émise, lui, se retire normalement : une
+-- règle qui refuse tout ne prouverait rien.
+do $$
+declare v_libre uuid;
+begin
+  insert into logos (garage_id, storage_path, label)
+  values ('a0000000-0000-0000-0000-0000000000a1',
+          'a0000000-0000-0000-0000-0000000000a1/jetable.png', 'Jetable')
+  returning id into v_libre;
+
+  if not logo_is_deletable(v_libre) then
+    raise exception 'Un logo inutilisé devrait être supprimable.';
+  end if;
+
+  delete from logos where id = v_libre;
+  if exists (select 1 from logos where id = v_libre) then
+    raise exception 'Un logo inutilisé n''a pas pu être retiré.';
+  end if;
+
+  raise notice '23c bis. Logo inutilisé : supprimable .. OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 23d. Le logo d'un brouillon vient du garage, jamais du navigateur
+-- ---------------------------------------------------------------------------
+-- Même principe que le `garage_id` de la section 20a bis : un identifiant
+-- emprunté au voisin est IGNORÉ, sans erreur — l'erreur renseignerait sur
+-- l'existence des logos d'autrui.
+reset role;
+
+insert into logos (id, garage_id, storage_path, label, is_default) values
+  ('c9000000-0000-0000-0000-0000000000c1', 'c0000000-0000-0000-0000-0000000000c1',
+   'c0000000-0000-0000-0000-0000000000c1/logo.png', 'Logo de C', true);
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+do $$
+declare
+  v_inv   invoices;
+  v_a_moi uuid;
+begin
+  select id into v_a_moi from logos
+  where garage_id = 'a0000000-0000-0000-0000-0000000000a1' and is_default
+  limit 1;
+
+  -- Le logo du voisin : ignoré.
+  v_inv := save_invoice_draft(
+    null,
+    jsonb_build_object(
+      'client_name', 'Logo emprunté',
+      'logo_id',     'c9000000-0000-0000-0000-0000000000c1',
+      'issue_date',  current_date::text
+    ),
+    jsonb_build_array(
+      jsonb_build_object('description', 'Prestation', 'quantity', 1,
+                         'unit_price_ht', 10, 'vat_rate', 20)
+    ),
+    2
+  );
+
+  if v_inv.logo_id is not null then
+    raise exception 'FUITE : le logo d''un autre garage a été retenu (%).', v_inv.logo_id
+      using errcode = 'F0001';
+  end if;
+
+  -- Le sien : retenu.
+  v_inv := save_invoice_draft(
+    v_inv.id,
+    jsonb_build_object(
+      'client_name', 'Logo légitime',
+      'logo_id',     v_a_moi::text,
+      'issue_date',  current_date::text
+    ),
+    jsonb_build_array(
+      jsonb_build_object('description', 'Prestation', 'quantity', 1,
+                         'unit_price_ht', 10, 'vat_rate', 20)
+    ),
+    2
+  );
+
+  if v_inv.logo_id is distinct from v_a_moi then
+    raise exception 'Le logo du garage n''a pas été retenu (% au lieu de %).',
+      v_inv.logo_id, v_a_moi;
+  end if;
+
+  raise notice '23d. Logo du brouillon : validé serveur . OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 23e. La bibliothèque reste cloisonnée
+-- ---------------------------------------------------------------------------
+do $$
+declare v_hors int;
+begin
+  select count(*) into v_hors from logos
+  where garage_id <> 'a0000000-0000-0000-0000-0000000000a1';
+  if v_hors > 0 then
+    raise exception 'FUITE : % logo(s) d''un autre garage visibles.', v_hors
+      using errcode = 'F0001';
+  end if;
+
+  if exists (select 1 from logos where id = 'c9000000-0000-0000-0000-0000000000c1') then
+    raise exception 'FUITE : le logo de C est lisible par A.' using errcode = 'F0001';
+  end if;
+
+  raise notice '23e. Bibliothèque : cloisonnée ......... OK';
+end $$;
+
+select public.expect_blocked(
+  $q$ insert into logos (garage_id, storage_path)
+      values ('c0000000-0000-0000-0000-0000000000c1',
+              'c0000000-0000-0000-0000-0000000000c1/pirate.png') $q$,
+  'un garage a ajouté un logo chez un autre');
+
+select public.expect_blocked(
+  $q$ delete from logos where id = 'c9000000-0000-0000-0000-0000000000c1' $q$,
+  'un garage a supprimé le logo d''un autre');
+
+do $$ begin raise notice '23e bis. Écriture chez le voisin : fermée OK'; end $$;
 
 do $$
 begin

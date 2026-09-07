@@ -6,6 +6,7 @@ import { getInvoice, getSellerIdentity } from "@/lib/invoice/queries";
 import { DEFAULT_LOCALE, type LocaleCode } from "@/lib/locale";
 import { todayInLocale } from "@/lib/format";
 import { getEditorCatalog } from "@/lib/catalog/queries";
+import { listLogos, signerLogo } from "@/lib/logos/queries";
 import { InvoiceEditor } from "../invoice-editor";
 import { IssuedInvoiceView } from "../issued-invoice";
 import { readOnlyReason } from "../read-only";
@@ -40,12 +41,20 @@ export default async function InvoicePage(props: PageProps<"/app/factures/[id]">
   if (!view) notFound();
 
   if (view.status !== "draft") {
-    return <IssuedInvoiceView invoice={view.issued} />;
+    // Le logo GELÉ, signé pour l'affichage : `seller_snapshot.logo_path`, et
+    // jamais la bibliothèque actuelle.
+    const logoFige = await signerLogo(view.issued.seller.logoPath);
+    return <IssuedInvoiceView invoice={view.issued} logoUrl={logoFige} />;
   }
 
   const locale = (garage.locale as LocaleCode) || DEFAULT_LOCALE;
-  // Chargé APRÈS l'aiguillage : une facture émise n'a rien à faire du carnet.
-  const catalog = await getEditorCatalog();
+  // Chargés APRÈS l'aiguillage : une facture émise n'a rien à faire du carnet
+  // ni de la bibliothèque — son logo est gelé dans son instantané.
+  const [catalog, logos, defaultLogoUrl] = await Promise.all([
+    getEditorCatalog(),
+    garage.logoManagementEnabled ? listLogos() : Promise.resolve([]),
+    signerLogo(seller.logoPath),
+  ]);
 
   return (
     <InvoiceEditor
@@ -54,6 +63,8 @@ export default async function InvoicePage(props: PageProps<"/app/factures/[id]">
       localeCode={locale}
       today={todayInLocale(locale)}
       catalog={catalog}
+      logos={logos}
+      defaultLogoUrl={defaultLogoUrl}
       canWrite={access.canWrite}
       readOnlyReason={readOnlyReason(garage, access)}
       finalizeBlockMessage={access.finalizeBlockMessage}

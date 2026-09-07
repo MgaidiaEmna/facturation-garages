@@ -52,6 +52,13 @@ export const invoiceDraftSchema = z.object({
   notes: z.string().trim().max(1000, "Note trop longue (1000 caractères max)."),
 
   /**
+   * Logo choisi pour cette facture. Validé comme un UUID, rien de plus : c'est
+   * `save_invoice_draft()` qui vérifie qu'il appartient bien au garage, et qui
+   * l'ignore sinon. Valider une forme n'a jamais autorisé personne.
+   */
+  logoId: z.uuid("Logo introuvable.").nullish(),
+
+  /**
    * Plafond volontaire : au-delà, ce n'est plus une facture d'atelier mais un
    * envoi qui mérite un autre outil. Il protège aussi la charge utile.
    */

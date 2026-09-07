@@ -27,6 +27,7 @@ import { formatAmount } from "@/lib/format";
 import { getLocale, type LocaleCode } from "@/lib/locale";
 import { cn } from "@/lib/utils";
 import type { CatalogClient, CatalogService, EditorCatalog } from "@/lib/catalog/types";
+import type { Logo } from "@/lib/logos/types";
 import { FinalizeInvoiceButton } from "./finalize-invoice-button";
 import { ClientPicker, ServicePicker } from "./catalog-pickers";
 import { SaveClientButton } from "./save-client-button";
@@ -60,6 +61,8 @@ export function InvoiceEditor({
   localeCode,
   today,
   catalog,
+  logos,
+  defaultLogoUrl,
   canWrite,
   readOnlyReason,
   finalizeBlockMessage,
@@ -81,6 +84,16 @@ export function InvoiceEditor({
    * choisi ici n'est relié à la facture, tout y reste modifiable.
    */
   catalog: EditorCatalog;
+  /**
+   * Bibliothèque de logos — VIDE pour un garage standard, qui ne choisit pas :
+   * son logo lui est assigné par l'administrateur. Le sélecteur n'est donc
+   * même pas monté. Ce n'est pas la barrière : `logos_write` et les policies
+   * du bucket exigent `can_manage_logos()`, et la fonction SQL ignore un
+   * `logo_id` qui n'est pas au garage.
+   */
+  logos: Logo[];
+  /** Logo par défaut du garage, signé. Ce que voit un garage standard. */
+  defaultLogoUrl: string | null;
   canWrite: boolean;
   readOnlyReason: string | null;
   /**
@@ -101,6 +114,7 @@ export function InvoiceEditor({
   const [issueDate, setIssueDate] = useState(draft?.issueDate ?? today);
   const [serviceDate, setServiceDate] = useState(draft?.serviceDate ?? "");
   const [notes, setNotes] = useState(draft?.notes ?? "");
+  const [logoId, setLogoId] = useState<string | null>(draft?.logoId ?? null);
   const [lines, setLines] = useState<DraftLine[]>(
     // `PREMIERE_LIGNE` est une constante, pas un tirage : ce rendu-ci a lieu
     // deux fois — sur le serveur, puis à l'hydratation — et les `id` qui en
@@ -116,6 +130,12 @@ export function InvoiceEditor({
   const nouvelleCle = () => `${PREMIERE_LIGNE}-${++compteurLignes.current}`;
 
   const totals = computeTotals(lines, { localeCode, vatExempt: seller.vatExempt });
+
+  // Le logo choisi, sinon celui du garage. L'aperçu suit la sélection sans
+  // aller-retour : chaque logo arrive avec son URL signée.
+  const logoUrl =
+    (logoId ? logos.find((logo) => logo.id === logoId)?.signedUrl : null) ??
+    defaultLogoUrl;
 
   function updateLine(key: string, patch: Partial<DraftLine>) {
     setLines((current) =>
@@ -194,6 +214,7 @@ export function InvoiceEditor({
       issueDate,
       serviceDate,
       notes,
+      logoId,
       lines: lines.map((line) => ({
         description: line.description,
         unit: line.unit,
@@ -379,6 +400,37 @@ export function InvoiceEditor({
             </CardContent>
           </Card>
 
+          {logos.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Logo</CardTitle>
+                <CardDescription>
+                  Le logo de cette facture. Sans choix, celui par défaut de votre
+                  bibliothèque s&apos;applique.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-3">
+                <LogoChoice
+                  label="Par défaut"
+                  url={defaultLogoUrl}
+                  selected={logoId === null}
+                  onSelect={() => setLogoId(null)}
+                  disabled={!canWrite}
+                />
+                {logos.map((logo) => (
+                  <LogoChoice
+                    key={logo.id}
+                    label={logo.label ?? "Sans nom"}
+                    url={logo.signedUrl}
+                    selected={logoId === logo.id}
+                    onSelect={() => setLogoId(logo.id)}
+                    disabled={!canWrite}
+                  />
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Dates</CardTitle>
@@ -485,6 +537,7 @@ export function InvoiceEditor({
               serviceDate={serviceDate}
               notes={notes}
               localeCode={localeCode}
+              logoUrl={logoUrl}
             />
           </div>
         </div>
@@ -631,6 +684,57 @@ function LineRow({
         </span>
       </p>
     </div>
+  );
+}
+
+/**
+ * Une vignette de choix de logo.
+ *
+ * Un `<button>` et non une image cliquable : la sélection doit être atteignable
+ * au clavier et annoncée par un lecteur d'écran. `aria-pressed` dit lequel est
+ * retenu — l'anneau bleu marine seul ne le dirait qu'aux voyants.
+ */
+function LogoChoice({
+  label,
+  url,
+  selected,
+  onSelect,
+  disabled,
+}: {
+  label: string;
+  url: string | null;
+  selected: boolean;
+  onSelect: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={disabled}
+      aria-pressed={selected}
+      title={label}
+      className={cn(
+        "flex w-28 flex-col items-center gap-1.5 rounded-lg border p-2 transition-colors",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        selected
+          ? "border-primary bg-primary/5 ring-2 ring-primary/30"
+          : "border-input hover:border-primary/40 hover:bg-muted/50",
+        disabled ? "opacity-60" : null,
+      )}
+    >
+      <span className="flex h-12 w-full items-center justify-center overflow-hidden rounded bg-white">
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt="" className="max-h-12 max-w-full object-contain" />
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Aucun</span>
+        )}
+      </span>
+      <span className="w-full truncate text-center text-xs text-muted-foreground">
+        {label}
+      </span>
+    </button>
   );
 }
 

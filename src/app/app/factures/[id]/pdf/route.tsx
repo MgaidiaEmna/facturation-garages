@@ -5,6 +5,7 @@ import { requireGarage } from "@/lib/auth/session";
 import { buildInvoiceDocument } from "@/lib/invoice/document";
 import { contentDisposition, nomFichierFacture } from "@/lib/invoice/pdf-filename";
 import { getInvoice, getSellerIdentity } from "@/lib/invoice/queries";
+import { cheminLogo, logoEnDataUri } from "@/lib/logos/queries";
 import type { InvoiceDraft, IssuedInvoice } from "@/lib/invoice/types";
 import { DEFAULT_LOCALE, type LocaleCode } from "@/lib/locale";
 
@@ -68,7 +69,7 @@ export async function GET(
   const document =
     view.status === "draft"
       ? await documentDeBrouillon(view.draft, localeCode)
-      : documentEmis(view.issued, localeCode);
+      : await documentEmis(view.issued, localeCode);
 
   if (!document) return introuvable();
 
@@ -104,8 +105,13 @@ async function documentDeBrouillon(draft: InvoiceDraft, localeCode: LocaleCode) 
   const seller = await getSellerIdentity();
   if (!seller) return null;
 
+  // Le logo choisi pour cette facture, ou à défaut celui du garage — la même
+  // règle que `finalize_invoice()` applique au moment de geler.
+  const chemin = (await cheminLogo(draft.logoId)) ?? seller.logoPath;
+
   return buildInvoiceDocument({
     seller,
+    logoUrl: await logoEnDataUri(chemin),
     client: {
       name: draft.clientName,
       address: draft.clientAddress,
@@ -122,9 +128,12 @@ async function documentDeBrouillon(draft: InvoiceDraft, localeCode: LocaleCode) 
 }
 
 /** Facture émise : tout vient du gel, y compris la locale du jour de l'émission. */
-function documentEmis(issued: IssuedInvoice, localeParDefaut: LocaleCode) {
+async function documentEmis(issued: IssuedInvoice, localeParDefaut: LocaleCode) {
   return buildInvoiceDocument({
     seller: issued.seller,
+    // Le chemin GELÉ dans `seller_snapshot` : on ne consulte jamais `logos`,
+    // donc la facture d'hier garde le logo d'hier.
+    logoUrl: await logoEnDataUri(issued.seller.logoPath),
     client: issued.client,
     lines: issued.lines,
     issueDate: issued.issueDate,

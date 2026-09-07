@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 
 import { formatAmount, formatDate, formatVatRate } from "@/lib/format";
 import { getLocale } from "@/lib/locale";
@@ -64,6 +64,7 @@ const styles = StyleSheet.create({
   enteteDroite: { textAlign: "right", flexShrink: 0 },
   filetEntete: { borderBottomWidth: 1, borderBottomColor: ZINC[300], paddingBottom: 14 },
 
+  logo: { maxHeight: 46, maxWidth: 170, marginBottom: 6, objectFit: "contain" },
   vendeurNom: { fontSize: 13, fontFamily: "Helvetica-Bold", marginBottom: 4 },
   vendeurLigne: { fontSize: 8, color: ZINC[600] },
   vendeurAbsent: { fontSize: 8, color: ZINC[400] },
@@ -212,6 +213,17 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
         {/* ---------- En-tête ---------- */}
         <View style={[styles.entete, styles.filetEntete]}>
           <View style={styles.enteteGauche}>
+            {/* `src` est une `data:` URI : les octets ont été téléchargés par
+                le serveur depuis le bucket privé. Passer l'URL signée ferait
+                dépendre le rendu d'un aller-retour réseau au moment de
+                l'impression — et d'une signature qui peut avoir expiré. */}
+            {seller.logoUrl ? (
+              // `Image` vient de @react-pdf/renderer, pas du DOM : il n'a pas
+              // d'attribut `alt`, et un PDF n'a pas de texte alternatif. La
+              // dénomination du vendeur figure juste en dessous, en texte.
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image style={styles.logo} src={seller.logoUrl} />
+            ) : null}
             <Text style={styles.vendeurNom}>{pdfSafe(seller.name)}</Text>
             {seller.identityLines.length === 0 ? (
               <Text style={styles.vendeurAbsent}>Identité légale incomplète.</Text>

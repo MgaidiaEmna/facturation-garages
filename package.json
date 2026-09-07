@@ -13,7 +13,8 @@
     "verify:factures": "node --env-file-if-exists=.env.local scripts/verify-invoice-editor.mjs",
     "verify:emission": "node --env-file-if-exists=.env.local scripts/verify-emission.mjs",
     "verify:catalogue": "node --env-file-if-exists=.env.local scripts/verify-catalog.mjs",
-    "verify:pdf": "node --env-file-if-exists=.env.local scripts/verify-pdf.mjs"
+    "verify:pdf": "node --env-file-if-exists=.env.local scripts/verify-pdf.mjs",
+    "verify:logos": "node --env-file-if-exists=.env.local scripts/verify-logos.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

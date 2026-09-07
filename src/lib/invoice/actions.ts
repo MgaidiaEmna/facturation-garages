@@ -78,6 +78,8 @@ export async function saveInvoiceDraftAction(
       issue_date: draft.issueDate,
       service_date: draft.serviceDate || null,
       notes: draft.notes,
+      // Ignoré par la fonction SQL s'il n'est pas un logo de ce garage.
+      logo_id: draft.logoId ?? null,
     },
     // Les lignes vides ne sont pas envoyées ; la fonction SQL les écarte
     // également, pour que la règle tienne quel que soit l'appelant.

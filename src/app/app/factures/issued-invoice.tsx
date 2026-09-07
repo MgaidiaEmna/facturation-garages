@@ -25,7 +25,14 @@ import { DEFAULT_LOCALE, type LocaleCode } from "@/lib/locale";
  * et pénalités recopiés au jour de l'émission. Rien n'est recalculé — ce
  * serait risquer d'afficher autre chose que ce que le client a reçu.
  */
-export function IssuedInvoiceView({ invoice }: { invoice: IssuedInvoice }) {
+export function IssuedInvoiceView({
+  invoice,
+  logoUrl,
+}: {
+  invoice: IssuedInvoice;
+  /** URL signée du logo GELÉ à l'émission, jamais celui de la bibliothèque. */
+  logoUrl: string | null;
+}) {
   const localeCode = (invoice.locale as LocaleCode) || DEFAULT_LOCALE;
   const annulee = invoice.status === "cancelled";
 
@@ -123,6 +130,7 @@ export function IssuedInvoiceView({ invoice }: { invoice: IssuedInvoice }) {
           number={invoice.number}
           dueDate={invoice.dueDate}
           totals={invoice.totals}
+          logoUrl={logoUrl}
         />
       </div>
     </div>

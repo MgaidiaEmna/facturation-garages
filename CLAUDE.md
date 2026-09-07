@@ -19,6 +19,7 @@ npm run verify:factures # éditeur de facture (phase 5)
 npm run verify:emission # numérotation et émission (phase 6)
 npm run verify:catalogue # carnet de clients et catalogue (phase 7)
 npm run verify:pdf      # export PDF, contenu du document lu (phase 8)
+npm run verify:logos    # logos + VRAIS téléversements Storage (phase 9)
 ```
 
 Les scripts `verify:*` pilotent l'application **réellement lancée** en se comportant
@@ -32,6 +33,10 @@ Angle mort assumé : ce qui n'existe dans le HTML qu'après exécution du JavaSc
 d'une boîte de dialogue Radix, interrupteurs — échappe à ces scripts. On l'éprouve par son
 effet en base, avec la session de l'utilisateur (jamais la clé service role, qui contournerait
 ce qu'on veut vérifier). Un test navigateur est prévu en phase 10.
+
+**Réserve levée en phase 9** : les policies du bucket `logos` n'étaient éprouvées que sur la
+table `storage.objects` — donc, hors projet Supabase, sur un stub. `verify:logos` téléverse et
+télécharge désormais pour de bon contre le service Storage, avec le jeton de chaque garage.
 
 Base de données : migrations SQL versionnées à la main dans `supabase/migrations`, appliquées
 via la CLI Supabase (`supabase migration new <nom>`, `supabase db push`). **Pas d'ORM**, pas de
@@ -534,6 +539,41 @@ une partie des lecteurs. Trois règles en découlent :
   `Math.random()` : elle sert de `id` / `htmlFor` aux champs, et deux tirages successifs suffisent
   à casser l'hydratation. `emptyLine()` reçoit donc sa clé en paramètre et reste pure ; les clés
   créées après coup viennent d'un compteur, dans un gestionnaire d'événement.
+
+### Logos et bibliothèque premium (phase 9)
+
+| Qui | Où | Quoi |
+|---|---|---|
+| Garage **standard** | ne gère rien | l'admin lui assigne un logo depuis `/admin/garages/[id]` |
+| Garage **premium** | `/app/logos` | bibliothèque : téléverse, nomme, choisit son défaut, supprime |
+| Garage **premium** | éditeur de facture | sélecteur de logo **par facture** |
+
+Le « premium » reste le booléen `garages.logo_management_enabled`, jamais un rôle.
+`/app/logos` répond **404** sans le drapeau : l'onglet caché est une commodité, pas la
+barrière — `logos_write` et les policies du bucket exigent `can_manage_logos()`.
+
+**PNG et JPEG seulement.** `@react-pdf/renderer` ne décode que ces deux formats : accepter un
+SVG donnerait un logo visible à l'écran et ABSENT du PDF, c'est-à-dire deux documents pour une
+même facture. Le refus est posé à trois endroits qui doivent rester d'accord — `TYPES_ACCEPTES`
+(zod), `allowed_mime_types` du bucket, et l'`accept` du champ de fichier.
+
+**Le logo passe par `document.ts`**, comme tout le reste : un seul champ `seller.logoUrl`,
+chaque rendu recevant la forme qu'il consomme — URL signée à l'écran, `data:` URI dans le PDF
+(les octets sont téléchargés par le serveur). Deux champs auraient rouvert la porte à deux
+logos différents sur le même document.
+
+**Le téléversement passe par la SESSION**, jamais par la clé service role : les policies du
+bucket sont alors la barrière, et non le fait que le code calcule le bon chemin. Le chemin est
+`{garage_id}/{uuid}.{png|jpg}` — garage lu dans `profiles`, nom tiré au sort, extension déduite
+du type MIME **validé** et jamais du nom de fichier reçu.
+
+**Le logo d'une facture émise est gelé** : `finalize_invoice()` écrit `logo_path` dans
+`seller_snapshot`, et la relecture ne consulte plus `logos`. Retirer un logo de la bibliothèque
+est refusé **par deux barrières indépendantes** : `invoices_guard_trg` via la cascade
+`on delete set null` (depuis la phase 1), et `logos_guard_trg` (phase 9) qui, lui, prononce un
+message compréhensible. `logo_is_deletable()` permet à l'écran de griser le bouton avant le
+clic. Ne pas confondre les deux : le trigger de la phase 9 apporte le MESSAGE, pas la
+protection — la section 23c vérifie donc le refus **et sa provenance**.
 
 ### Storage
 

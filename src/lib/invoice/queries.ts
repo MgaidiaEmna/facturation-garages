@@ -50,6 +50,14 @@ export async function getSellerIdentity(): Promise<SellerIdentity | null> {
   if (error) throw new Error(`Lecture de la fiche impossible : ${error.message}`);
   if (!data) return null;
 
+  // Le logo par défaut vit dans `logos`, pas sur la fiche : une requête de
+  // plus, mais une source unique. `logos_select` la borne au garage courant.
+  const { data: logo } = await supabase
+    .from("logos")
+    .select("storage_path")
+    .eq("is_default", true)
+    .maybeSingle();
+
   return {
     name: String(data.name),
     legalForm: (data.legal_form as string | null) ?? null,
@@ -66,6 +74,7 @@ export async function getSellerIdentity(): Promise<SellerIdentity | null> {
     paymentTermDays: Number(data.payment_term_days ?? 30),
     latePaymentPenaltyRate: Number(data.late_payment_penalty_rate ?? 0),
     recoveryIndemnity: Number(data.recovery_indemnity ?? 0),
+    logoPath: (logo?.storage_path as string | null) ?? null,
   };
 }
 
@@ -184,7 +193,7 @@ export async function getInvoice(invoiceId: string): Promise<InvoiceView | null>
     .from("invoices")
     .select(
       `id, status, number, client_name, client_address, client_phone, client_vat_number,
-       issue_date, service_date, due_date, notes, locale,
+       issue_date, service_date, due_date, notes, locale, logo_id,
        seller_snapshot, vat_exempt, payment_term_days, late_payment_penalty_rate,
        recovery_indemnity, subtotal_ht, vat_total, stamp_duty, total_ttc, vat_breakdown,
        finalized_at, cancelled_at,
@@ -211,6 +220,7 @@ export async function getInvoice(invoiceId: string): Promise<InvoiceView | null>
         issueDate: String(data.issue_date),
         serviceDate: (data.service_date as string | null) ?? "",
         notes: (data.notes as string | null) ?? "",
+        logoId: (data.logo_id as string | null) ?? null,
         lines,
       },
     };
@@ -251,6 +261,10 @@ function toIssuedInvoice(row: Record<string, unknown>, lines: DraftLine[]): Issu
     paymentTermDays: Number(row.payment_term_days ?? 0),
     latePaymentPenaltyRate: Number(row.late_payment_penalty_rate ?? 0),
     recoveryIndemnity: Number(row.recovery_indemnity ?? 0),
+    // Gelé à l'émission par `finalize_invoice()`. On ne consulte JAMAIS
+    // `logos` ici : c'est ce qui fait tenir le gel quand la bibliothèque
+    // change ensuite.
+    logoPath: texte("logo_path"),
   };
 
   const breakdown = ((row.vat_breakdown as Record<string, unknown>[] | null) ?? []).map(

@@ -77,6 +77,7 @@ email*.
 | `npm run verify:emission` | Rejoue la numérotation et l'émission (phase 6) |
 | `npm run verify:catalogue` | Rejoue le carnet de clients et le catalogue (phase 7) |
 | `npm run verify:pdf` | Rejoue l'export PDF et lit le contenu des documents (phase 8) |
+| `npm run verify:logos` | Rejoue les logos, avec de VRAIS téléversements Storage (phase 9) |
 | `npx supabase start` / `stop` | Pile Supabase locale (Docker) |
 
 ## Base de données
@@ -293,6 +294,27 @@ npm run verify:pdf
 > **Ce qu'il ne peut pas atteindre.** L'aspect : qu'une colonne déborde ou qu'un filet soit mal
 > placé ne se voit pas dans le texte extrait. Ce qui est éprouvé, c'est le contenu et la
 > conformité, pas la beauté.
+
+### Vérifier les logos — et l'isolation réelle du stockage
+
+`npm run verify:logos` **lève une réserve du projet**. Jusqu'ici les policies du bucket
+n'étaient éprouvées que par `rls_isolation.sql`, sur la table `storage.objects` — et hors
+projet Supabase, sur un stub. Cela prouvait que les policies disent ce qu'on croit ; pas que
+le **service** de stockage les applique.
+
+Ce script téléverse et télécharge pour de bon contre l'API Storage locale
+(`/storage/v1/object/logos/…`), avec le jeton de session de chaque garage : écriture bornée à
+`{garage_id}/`, lecture idem, signature refusée sur le dossier voisin, garage standard qui ne
+téléverse rien, SVG refusé par le bucket, anonyme éconduit. Puis le bout-en-bout : logo sur la
+facture, chemin gelé à l'émission, suppression refusée ensuite.
+
+```bash
+npm run dev            # dans un autre terminal
+npm run verify:logos
+```
+
+> **Ce qu'il ne peut pas atteindre.** L'apparence du logo sur le document : le script vérifie
+> qu'une image est embarquée dans le PDF, pas qu'elle est bien cadrée.
 
 ### Vérifier le limiteur de débit
 
@@ -615,6 +637,7 @@ scripts/
       de l'éditeur (le catalogue est un point de départ, il ne fige rien)
 - [x] **Phase 8** — Export PDF conforme : A4, mentions légales françaises, totaux figés,
       brouillon filigrané, structure prête pour Factur-X
-- [ ] **Phase 9** — Logos et bibliothèque premium
+- [x] **Phase 9** — Logos : assignés par l'admin pour un garage standard, bibliothèque et
+      sélecteur par facture pour un compte premium, logo gelé sur les factures émises
 - [ ] **Phase 10** — Finitions, tests d'isolation RLS, accessibilité
 - [ ] **Phase 11** — Déploiement GitHub + Vercel
