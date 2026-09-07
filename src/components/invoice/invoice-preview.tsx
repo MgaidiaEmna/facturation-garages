@@ -1,7 +1,13 @@
 import { formatAmount, formatDate, formatVatRate } from "@/lib/format";
 import { getLocale, type LocaleCode } from "@/lib/locale";
-import { computeTotals, isUsable, lineTotal, type DraftLine } from "@/lib/invoice/compute";
-import type { InvoiceParty, SellerIdentity } from "@/lib/invoice/types";
+import {
+  computeTotals,
+  isUsable,
+  lineTotal,
+  type DraftLine,
+  type InvoiceTotals,
+} from "@/lib/invoice/compute";
+import type { InvoiceParty, InvoiceStatus, SellerIdentity } from "@/lib/invoice/types";
 
 /**
  * Aperçu d'une facture.
@@ -31,6 +37,10 @@ export function InvoicePreview({
   serviceDate,
   notes,
   localeCode,
+  status = "draft",
+  number = null,
+  dueDate = null,
+  totals: frozenTotals,
 }: {
   seller: SellerIdentity;
   client: InvoiceParty;
@@ -39,10 +49,27 @@ export function InvoicePreview({
   serviceDate: string;
   notes: string;
   localeCode?: LocaleCode;
+  /** `draft` par défaut : c'est l'usage de l'éditeur temps réel. */
+  status?: InvoiceStatus;
+  /** Numéro attribué à l'émission. `null` sur un brouillon — il n'en a pas. */
+  number?: string | null;
+  /** Échéance gelée à l'émission. `null` : on la déduit du délai de règlement. */
+  dueDate?: string | null;
+  /**
+   * Totaux calculés par la base. Fournis pour une facture émise, absents pour
+   * un brouillon — auquel cas ils sont recalculés ici, à titre indicatif.
+   * Une facture émise ne doit JAMAIS réafficher un total recalculé : ce qui
+   * a été imprimé et envoyé au client, c'est ce que `finalize_invoice()` a
+   * écrit.
+   */
+  totals?: InvoiceTotals;
 }) {
   const locale = getLocale(localeCode);
-  const totals = computeTotals(lines, { localeCode, vatExempt: seller.vatExempt });
+  const totals =
+    frozenTotals ?? computeTotals(lines, { localeCode, vatExempt: seller.vatExempt });
   const visibles = lines.filter(isUsable);
+  const echeance =
+    dueDate ?? (issueDate ? addDays(issueDate, seller.paymentTermDays) : null);
 
   return (
     <article className="mx-auto w-full max-w-[210mm] bg-white p-8 text-[13px] leading-relaxed text-zinc-900 shadow-sm ring-1 ring-zinc-200 sm:p-10">
@@ -57,9 +84,19 @@ export function InvoicePreview({
 
         <div className="text-right">
           <p className="text-2xl font-semibold tracking-tight text-zinc-900">FACTURE</p>
-          <p className="mt-1 inline-block rounded border border-zinc-300 px-2 py-0.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
-            Brouillon — non émis
-          </p>
+          {/* Une facture émise ne porte aucune mention d'état : c'est le
+              document tel qu'il part chez le client. Seuls le brouillon et
+              l'avoir annoncent ce qu'ils sont. */}
+          {status === "draft" ? (
+            <p className="mt-1 inline-block rounded border border-zinc-300 px-2 py-0.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
+              Brouillon — non émis
+            </p>
+          ) : null}
+          {status === "cancelled" ? (
+            <p className="mt-1 inline-block rounded border border-zinc-400 px-2 py-0.5 text-[11px] font-medium tracking-wide text-zinc-700 uppercase">
+              Annulée
+            </p>
+          ) : null}
           <dl className="mt-3 space-y-0.5 text-[12px] text-zinc-600">
             <div className="flex justify-end gap-2">
               <dt>Date d&apos;émission :</dt>
@@ -75,7 +112,11 @@ export function InvoicePreview({
             ) : null}
             <div className="flex justify-end gap-2">
               <dt>Numéro :</dt>
-              <dd className="text-zinc-400">attribué à l&apos;émission</dd>
+              {number ? (
+                <dd className="font-medium tabular-nums text-zinc-900">{number}</dd>
+              ) : (
+                <dd className="text-zinc-400">attribué à l&apos;émission</dd>
+              )}
             </div>
           </dl>
         </div>
@@ -220,7 +261,7 @@ export function InvoicePreview({
 
         <p>
           Règlement à {seller.paymentTermDays} jours
-          {issueDate ? <> — échéance au {formatDate(addDays(issueDate, seller.paymentTermDays))}</> : null}.
+          {echeance ? <> — échéance au {formatDate(echeance)}</> : null}.
         </p>
 
         <p>

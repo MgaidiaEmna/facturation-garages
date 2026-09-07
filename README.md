@@ -74,6 +74,7 @@ email*.
 | `npm run verify:auth` | Rejoue le parcours d'authentification de bout en bout |
 | `npm run verify:garages` | Rejoue l'espace d'administration des garages (phase 3) |
 | `npm run verify:factures` | Rejoue l'éditeur de facture (phase 5) |
+| `npm run verify:emission` | Rejoue la numérotation et l'émission (phase 6) |
 | `npx supabase start` / `stop` | Pile Supabase locale (Docker) |
 
 ## Base de données
@@ -234,6 +235,24 @@ npm run verify:factures
 > script emprunte donc le même chemin de données — `save_invoice_draft()` avec le **jeton de
 > session du garage**, donc sous RLS — et constate l'effet en base. Jamais avec la clé
 > service role, qui contournerait ce qu'on veut éprouver.
+
+### Vérifier l'émission
+
+`npm run verify:emission` pilote l'application lancée et vérifie le **câblage** de la
+phase 6 : numérotation séquentielle `AAAA-000001`, série sans trou même après un brouillon
+abandonné, refus de tout retour en arrière une fois la facture émise, onglets de la liste,
+écran de relecture figé, et le gel des mentions du vendeur quand la fiche du garage change
+ensuite.
+
+```bash
+npm run dev            # dans un autre terminal
+npm run verify:emission
+```
+
+> **Ce qu'il ne peut pas atteindre.** Le clic sur « Émettre la facture » : la confirmation
+> est une boîte de dialogue Radix, montée par le JavaScript. Le script emprunte le même
+> chemin de données — `finalize_invoice()` avec le **jeton de session du garage** — et
+> constate l'effet en base et à l'écran. La clé service role ne sert qu'à **observer**.
 
 ### Vérifier le limiteur de débit
 
@@ -550,7 +569,8 @@ scripts/
       historique, blocage en lecture seule à l'échéance
 - [x] **Phase 5** — Éditeur de facture : saisie à gauche, aperçu temps réel à droite,
       brouillons enregistrables sans consommer de numéro
-- [ ] **Phase 6** — Numérotation, finalisation, liste des factures
+- [x] **Phase 6** — Numérotation séquentielle, émission (facture figée, mentions du
+      vendeur gelées), liste à onglets brouillons / émises / annulées
 - [ ] **Phase 7** — Catalogue de prestations, carnet de clients
 - [ ] **Phase 8** — Export PDF conforme
 - [ ] **Phase 9** — Logos et bibliothèque premium

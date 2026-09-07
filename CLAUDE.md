@@ -16,6 +16,7 @@ npm run db:seed         # crée le compte super administrateur (idempotent)
 npm run verify:auth     # parcours d'authentification de bout en bout
 npm run verify:garages  # espace d'administration des garages (phase 3)
 npm run verify:factures # éditeur de facture (phase 5)
+npm run verify:emission # numérotation et émission (phase 6)
 ```
 
 Les scripts `verify:*` pilotent l'application **réellement lancée** en se comportant
@@ -257,6 +258,46 @@ l'**atomicité**, rien d'autre.
 
 Le `garage_id` d'un brouillon vient de `my_garage_id()`, **jamais d'un paramètre** — un
 `garage_id` transmis dans l'en-tête est ignoré, et la section 20 le prouve.
+
+### Émission et registre (`/app/factures`, phase 6)
+
+La phase 6 n'a ajouté **aucune migration** : `finalize_invoice()`,
+`next_invoice_number()`, `finalize_block_reason()` et `invoices_guard_trg` existaient depuis
+la phase 1. Elle branche des écrans dessus. Toute évolution de l'émission se pense donc
+d'abord en SQL, pas dans le composant.
+
+| Écran | Route |
+|---|---|
+| Liste à onglets — brouillons (par défaut), émises, annulées | `/app/factures?statut=…` |
+| Éditeur d'un brouillon | `/app/factures/[id]` (statut `draft`) |
+| Facture émise, en lecture seule | `/app/factures/[id]` (statut `final` / `cancelled`) |
+
+**Les onglets sont de vrais liens**, pas un composant à onglets : l'état tient dans l'URL, se
+partage, se met en favori et fonctionne sans JavaScript. Un composant client aurait rendu la
+liste invisible aux scripts `verify:*`.
+
+**L'aiguillage se fait sur le statut lu en base, jamais sur l'URL.** Une facture émise ne
+revient pas dans l'éditeur en tapant son identifiant : la page monte `IssuedInvoiceView`.
+Et si elle y revenait, deux barrières indépendantes refuseraient l'écriture — le
+`where status = 'draft'` de `save_invoice_draft()` puis `invoices_guard_trg`.
+
+**Une facture émise n'est pas un éditeur grisé.** Un formulaire désactivé laisse croire
+qu'il existe un moyen de le réactiver. L'écran de relecture affiche le document, dit qu'il
+porte un numéro de la série légale, et renvoie vers l'avoir pour corriger.
+
+**Rien n'y est recalculé** : les totaux sont ceux que `finalize_invoice()` a écrits en
+`numeric` exact, l'identité du vendeur vient de `seller_snapshot`, le délai et les pénalités
+des colonnes gelées de la facture. `InvoicePreview` accepte pour cela `totals`, `number`,
+`dueDate` et `status` ; sans eux, il recalcule — c'est le mode brouillon.
+
+`finalizeInvoiceAction()` vérifie `access.finalizeBlockReason` **pour l'ergonomie seulement**
+et affiche `finalizeBlockMessage`, la phrase produite par la base. Le refus qui compte est
+celui de `finalize_invoice()`, avec la même phrase. Le bouton « Émettre » enregistre le
+brouillon **avant** d'émettre : la fonction SQL travaille sur ce qui est en base, pas sur ce
+qui est à l'écran.
+
+L'annulation par avoir (`final → cancelled`) n'est **pas** exposée : l'onglet « Annulées »
+n'apparaît que s'il contient quelque chose.
 
 ### Moteur de facture
 

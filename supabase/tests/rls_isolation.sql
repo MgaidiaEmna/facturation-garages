@@ -149,6 +149,27 @@ $$;
 
 grant execute on function public.expect_blocked(text, text) to authenticated;
 
+-- Phase 6 — chaque mutation a été injectée et vérifiée :
+--   create policy invoices_fuite on invoices for select
+--     using (status = 'final' and my_garage_id() is not null);
+--       ouvre le registre des voisins SANS toucher à la garde « e-mail
+--       vérifié » — les sections antérieures restent vertes
+--                                                 -> section 21c hurle
+--       (« Le garage A voit 7 factures émises au lieu de 3 »)
+--   create or replace function finalize_invoice(...) — même corps, mais
+--     `seller_snapshot = '{}'::jsonb` au lieu du `jsonb_build_object(...)`
+--       cesse de figer les mentions du vendeur     -> section 21a hurle
+--       (« les mentions figées ont suivi la fiche (SIRET gelé : <absent>) »)
+--
+--   Cas particulier, mesuré : la section 21b ne peut PAS être mise en défaut
+--   par une mutation isolée. Rouvrir une facture émise se heurte à deux
+--   barrières indépendantes — le `where status = 'draft'` de
+--   `save_invoice_draft()` et `invoices_guard_trg`. En retirer une seule
+--   laisse l'autre refuser ; en retirer deux fait hurler la section 5 avant
+--   la 21b. C'est la redondance qui est prouvée, pas la section prise seule :
+--   21b reste un garde-fou de régression pour le jour où l'une des deux
+--   barrières changera de forme.
+
 -- ---------------------------------------------------------------------------
 -- Jeu d'essai (créé en tant que propriétaire, hors RLS)
 -- ---------------------------------------------------------------------------
@@ -1563,6 +1584,150 @@ begin
   end;
 
   raise notice '20c. Lecture seule : enregistrement refusé   OK';
+end $$;
+
+-- ===========================================================================
+-- 21. Le registre des factures émises (phase 6)
+-- ===========================================================================
+-- La phase 6 n'ajoute aucune écriture : la finalisation existait déjà, et les
+-- sections 4 à 6 la couvrent. Ce qu'elle ajoute, ce sont deux LECTURES — la
+-- liste par statut et la relecture d'une facture figée — et un chemin qu'il
+-- faut voir se fermer : rouvrir une facture émise dans l'éditeur.
+reset role;
+
+-- La fiche du garage A change APRÈS ses deux premières émissions : nouvelle
+-- enseigne, nouveau SIRET. C'est le cas réel — un garage déménage, change de
+-- forme juridique — et c'est précisément ce que le gel doit absorber.
+update garages
+set name    = 'Garage A — nouvelle enseigne',
+    siret   = '99999999999999',
+    address = 'Nouvelle adresse de A'
+where id = 'a0000000-0000-0000-0000-0000000000a1';
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000001","role":"authenticated"}';
+
+-- ---------------------------------------------------------------------------
+-- 21a. Les mentions du vendeur sont figées AU MOMENT de l'émission
+-- ---------------------------------------------------------------------------
+-- Deux propriétés en une : l'ancienne facture ne suit pas la fiche, et la
+-- nouvelle porte bien l'identité du jour. Vérifier seulement la première
+-- laisserait passer un `seller_snapshot` écrit une fois pour toutes ; vérifier
+-- seulement la seconde laisserait passer une resynchronisation.
+do $$
+declare
+  v_ancienne invoices;
+  v_id       uuid;
+  v_nouvelle invoices;
+begin
+  select * into v_ancienne from invoices
+  where id = 'a2000000-0000-0000-0000-0000000000a1';
+
+  if v_ancienne.seller_snapshot->>'siret' is distinct from '11111111111111' then
+    raise exception
+      'FUITE : les mentions figées ont suivi la fiche (SIRET gelé : %).',
+      coalesce(v_ancienne.seller_snapshot->>'siret', '<absent>')
+      using errcode = 'F0001';
+  end if;
+
+  if v_ancienne.seller_snapshot->>'name' is distinct from 'Garage A' then
+    raise exception
+      'FUITE : la dénomination figée a suivi la fiche (%).',
+      coalesce(v_ancienne.seller_snapshot->>'name', '<absent>')
+      using errcode = 'F0001';
+  end if;
+
+  insert into invoices (garage_id, client_name)
+  values ('a0000000-0000-0000-0000-0000000000a1', 'Client après changement')
+  returning id into v_id;
+
+  insert into invoice_lines (invoice_id, description, quantity, unit_price_ht, vat_rate)
+  values (v_id, 'Contrôle', 1, 100, 20);
+
+  v_nouvelle := finalize_invoice(v_id, 2);
+
+  if v_nouvelle.seller_snapshot->>'siret' <> '99999999999999' then
+    raise exception
+      'La facture émise après le changement porte l''ancien SIRET : %.',
+      coalesce(v_nouvelle.seller_snapshot->>'siret', '<absent>');
+  end if;
+
+  -- Et la série continue sans trou : troisième facture du garage A.
+  if v_nouvelle.number <> extract(year from current_date)::text || '-000003' then
+    raise exception 'Série interrompue : % (attendu AAAA-000003).', v_nouvelle.number;
+  end if;
+
+  raise notice '21a. Mentions figées à l''émission ........ OK';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 21b. Une facture émise ne se rouvre pas par le chemin du brouillon
+-- ---------------------------------------------------------------------------
+-- L'écran de la phase 6 n'ouvre l'éditeur que sur un brouillon. Ce n'est pas
+-- la barrière : celle-ci est double, et en base — le `where status = 'draft'`
+-- de `save_invoice_draft()`, puis `invoices_guard_trg`. Retirer l'un des deux
+-- ne suffit donc pas à faire passer cette assertion, retirer les deux si.
+do $$
+begin
+  begin
+    perform save_invoice_draft(
+      'a2000000-0000-0000-0000-0000000000a1',
+      jsonb_build_object('client_name', 'Réécriture après émission'),
+      jsonb_build_array(
+        jsonb_build_object('description', 'Ligne ajoutée après coup',
+                           'quantity', 1, 'unit_price_ht', 1, 'vat_rate', 20)
+      ),
+      2
+    );
+    raise exception
+      'FUITE : une facture émise a été ré-enregistrée par le chemin du brouillon.'
+      using errcode = 'F0001';
+  exception
+    -- L'alerte sort du bloc : c'est tout l'objet de `expect_blocked`, rappelé
+    -- ici parce que ce bloc-ci ne peut pas l'utiliser (il appelle une fonction
+    -- qui doit échouer de plusieurs façons différentes).
+    when sqlstate 'F0001' then
+      raise;
+    when sqlstate 'P0002' or insufficient_privilege or raise_exception then
+      null;  -- refus attendu
+  end;
+
+  raise notice '21b. Facture émise : non ré-enregistrable  OK';
+end $$;
+
+-- Le client peut toujours ANNULER par avoir plus tard : la transition
+-- final -> cancelled reste ouverte en base (elle n'est pas exposée par l'UI
+-- de la phase 6). Ce qui doit rester fermé, c'est le retour en arrière.
+select public.expect_blocked(
+  $q$ update invoices set status = 'draft', number = null, finalized_at = null
+      where id = 'a2000000-0000-0000-0000-0000000000a1' $q$,
+  'une facture émise est redevenue un brouillon');
+
+-- ---------------------------------------------------------------------------
+-- 21c. La liste par statut ne montre que ses propres factures
+-- ---------------------------------------------------------------------------
+-- `listInvoices()` interroge `status = 'final'` SANS filtrer sur le garage :
+-- c'est le RLS qui pose la frontière. Si la policy s'ouvrait, l'écran
+-- « Émises » afficherait le registre des voisins sans qu'une seule ligne de
+-- TypeScript ait changé.
+do $$
+declare
+  v_emises      int;
+  v_hors_garage int;
+begin
+  select count(*) into v_emises from invoices where status = 'final';
+  if v_emises <> 3 then
+    raise exception 'Le garage A voit % factures émises au lieu de 3.', v_emises;
+  end if;
+
+  select count(*) into v_hors_garage from invoices
+  where garage_id <> 'a0000000-0000-0000-0000-0000000000a1';
+  if v_hors_garage > 0 then
+    raise exception 'FUITE : % facture(s) d''un autre garage dans la liste.',
+      v_hors_garage using errcode = 'F0001';
+  end if;
+
+  raise notice '21c. Liste par statut : cloisonnée ....... OK';
 end $$;
 
 do $$

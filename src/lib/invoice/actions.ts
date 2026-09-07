@@ -136,3 +136,72 @@ export async function deleteInvoiceDraftAction(
   revalidatePath("/app/factures");
   return {};
 }
+
+/**
+ * Émission d'une facture : le brouillon devient un document légal.
+ *
+ * ---------------------------------------------------------------------------
+ * TOUT SE DÉCIDE EN BASE
+ * ---------------------------------------------------------------------------
+ * `finalize_invoice()` est `SECURITY DEFINER` : elle refait ses propres
+ * contrôles (appartenance, statut, blocage commercial, mentions minimales),
+ * recalcule les totaux depuis `invoice_lines` en `numeric` exact, appelle
+ * `next_invoice_number()` et gèle `seller_snapshot` — le tout dans UNE
+ * transaction. Cette action ne fait que l'appeler.
+ *
+ * Ce qui est vérifié ici l'est pour l'ERGONOMIE, pas pour la sécurité : dire
+ * « essai terminé » avant le clic plutôt qu'après. La phrase affichée est
+ * celle que la base produirait (`finalize_block_message()`, lue par
+ * `my_access_state()`), pour qu'annonce et refus ne divergent jamais.
+ *
+ * Ni le numéro ni les totaux ne transitent par le navigateur : cette
+ * fonction n'envoie qu'un identifiant de facture et le nombre de décimales
+ * de la locale.
+ */
+export interface FinalizeState {
+  error?: string;
+  /** Numéro attribué par la base, à afficher tel quel. Jamais recalculé ici. */
+  number?: string;
+}
+
+export async function finalizeInvoiceAction(invoiceId: string): Promise<FinalizeState> {
+  const context = await requireGarage();
+
+  // Essai épuisé, abonnement échu, compte désactivé : le motif ET la phrase
+  // viennent de `finalize_block_reason()` / `finalize_block_message()`.
+  if (context.access.finalizeBlockReason) {
+    return {
+      error:
+        context.access.finalizeBlockMessage ??
+        "L'émission de factures est suspendue pour ce compte.",
+    };
+  }
+
+  const parsed = z.uuid("Facture introuvable.").safeParse(invoiceId);
+  if (!parsed.success) return { error: "Facture introuvable." };
+
+  const localeCode = (context.garage.locale as LocaleCode) || DEFAULT_LOCALE;
+  const locale = getLocale(localeCode);
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.rpc("finalize_invoice", {
+    p_invoice_id: parsed.data,
+    // La connaissance des règles pays reste dans le TypeScript ; la base
+    // arrondit avec ce qu'on lui donne.
+    p_decimals: locale.decimals,
+  });
+
+  // Le message de refus vient de la base et se suffit à lui-même : le
+  // reformuler ici, c'est risquer d'annoncer autre chose que ce qui s'est
+  // réellement passé.
+  if (error) return { error: error.message };
+
+  const invoice = (Array.isArray(data) ? data[0] : data) as { number?: string } | null;
+
+  revalidatePath("/app/factures");
+  revalidatePath(`/app/factures/${parsed.data}`);
+  // Le bandeau d'essai de l'espace change de compte : 2/3 devient 3/3.
+  revalidatePath("/app");
+
+  return { number: invoice?.number };
+}

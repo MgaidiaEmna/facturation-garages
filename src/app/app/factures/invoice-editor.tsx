@@ -20,11 +20,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { InvoicePreview } from "@/components/invoice/invoice-preview";
 import { saveInvoiceDraftAction } from "@/lib/invoice/actions";
-import { computeTotals, emptyLine, type DraftLine } from "@/lib/invoice/compute";
+import { computeTotals, emptyLine, isUsable, type DraftLine } from "@/lib/invoice/compute";
 import type { InvoiceDraft, SellerIdentity } from "@/lib/invoice/types";
 import { formatAmount } from "@/lib/format";
 import { getLocale, type LocaleCode } from "@/lib/locale";
 import { cn } from "@/lib/utils";
+import { FinalizeInvoiceButton } from "./finalize-invoice-button";
 
 /**
  * Clé de la ligne vierge offerte à l'ouverture d'un brouillon neuf.
@@ -56,6 +57,7 @@ export function InvoiceEditor({
   today,
   canWrite,
   readOnlyReason,
+  finalizeBlockMessage,
 }: {
   seller: SellerIdentity;
   /** Brouillon repris, ou `null` pour une création. */
@@ -70,6 +72,12 @@ export function InvoiceEditor({
   today: string;
   canWrite: boolean;
   readOnlyReason: string | null;
+  /**
+   * Pourquoi l'émission est refusée, en une phrase produite par la base
+   * (`finalize_block_message()`). `null` quand elle est ouverte. Rien n'est
+   * recalculé ici : c'est la MÊME phrase que lèverait `finalize_invoice()`.
+   */
+  finalizeBlockMessage: string | null;
 }) {
   const router = useRouter();
   const locale = getLocale(localeCode);
@@ -121,43 +129,58 @@ export function InvoiceEditor({
     setLines((current) => [...current, ligne]);
   }
 
-  function save() {
-    startSaving(async () => {
-      const result = await saveInvoiceDraftAction({
-        invoiceId,
-        clientName,
-        clientAddress,
-        clientPhone,
-        clientVatNumber,
-        issueDate,
-        serviceDate,
-        notes,
-        lines: lines.map((line) => ({
-          description: line.description,
-          unit: line.unit,
-          quantity: line.quantity,
-          unitPriceHt: line.unitPriceHt,
-          vatRate: line.vatRate,
-        })),
-      });
+  /**
+   * Enregistre le brouillon et renvoie son identifiant, ou `null` si
+   * l'enregistrement a échoué — la personne a déjà été prévenue.
+   *
+   * Extrait de `save()` parce que l'émission a besoin du même travail :
+   * `finalize_invoice()` lit la base, pas l'écran, donc ce qui est affiché
+   * doit y être avant qu'on émette.
+   */
+  async function persist(): Promise<string | null> {
+    const result = await saveInvoiceDraftAction({
+      invoiceId,
+      clientName,
+      clientAddress,
+      clientPhone,
+      clientVatNumber,
+      issueDate,
+      serviceDate,
+      notes,
+      lines: lines.map((line) => ({
+        description: line.description,
+        unit: line.unit,
+        quantity: line.quantity,
+        unitPriceHt: line.unitPriceHt,
+        vatRate: line.vatRate,
+      })),
+    });
 
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      if (result.fieldErrors) {
-        toast.error("Certaines valeurs sont invalides — vérifiez la saisie.");
-        return;
-      }
+    if (result.error) {
+      toast.error(result.error);
+      return null;
+    }
+    if (result.fieldErrors) {
+      toast.error("Certaines valeurs sont invalides — vérifiez la saisie.");
+      return null;
+    }
+
+    const id = result.invoiceId ?? invoiceId;
+    if (id && id !== invoiceId) setInvoiceId(id);
+    return id ?? null;
+  }
+
+  function save() {
+    const avant = invoiceId;
+    startSaving(async () => {
+      const id = await persist();
+      if (!id) return;
 
       toast.success("Brouillon enregistré.");
 
       // Première sauvegarde : on passe sur l'URL du brouillon, pour que les
       // suivantes le mettent à jour au lieu d'en créer un nouveau.
-      if (result.invoiceId && result.invoiceId !== invoiceId) {
-        setInvoiceId(result.invoiceId);
-        router.replace(`/app/factures/${result.invoiceId}`);
-      }
+      if (id !== avant) router.replace(`/app/factures/${id}`);
       router.refresh();
     });
   }
@@ -179,10 +202,21 @@ export function InvoiceEditor({
               {formatAmount(totals.totalTtc, localeCode)}
             </span>
           </span>
-          <Button onClick={save} disabled={saving || !canWrite}>
+          <Button variant="outline" onClick={save} disabled={saving || !canWrite}>
             <Save aria-hidden />
             {saving ? "Enregistrement…" : "Enregistrer le brouillon"}
           </Button>
+
+          {canWrite ? (
+            <FinalizeInvoiceButton
+              invoiceId={invoiceId}
+              clientName={clientName}
+              totalLabel={formatAmount(totals.totalTtc, localeCode)}
+              lineCount={lines.filter(isUsable).length}
+              blockMessage={finalizeBlockMessage}
+              onBeforeFinalize={persist}
+            />
+          ) : null}
         </div>
       </div>
 

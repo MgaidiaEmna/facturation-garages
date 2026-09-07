@@ -30,6 +30,7 @@ export default async function NewInvoicePage() {
       today={todayInLocale(locale)}
       canWrite={access.canWrite}
       readOnlyReason={readOnlyReason(garage, access)}
+      finalizeBlockMessage={access.finalizeBlockMessage}
     />
   );
 }
