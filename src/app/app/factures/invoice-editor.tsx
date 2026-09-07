@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Plus, Save, Trash2, TriangleAlert } from "lucide-react";
+import { ArrowLeft, FileText, Plus, Save, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -249,6 +249,27 @@ export function InvoiceEditor({
               {formatAmount(totals.totalTtc, localeCode)}
             </span>
           </span>
+          {/* Le PDF est produit par le serveur, à partir de ce qui est EN
+              BASE : il n'y a rien à prévisualiser tant que rien n'est
+              enregistré. Le bouton le dit au lieu de disparaître. */}
+          {invoiceId ? (
+            <Button asChild variant="ghost">
+              <a href={`/app/factures/${invoiceId}/pdf`} target="_blank" rel="noreferrer">
+                <FileText aria-hidden />
+                Aperçu PDF
+              </a>
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              disabled
+              title="Enregistrez le brouillon pour en voir l'aperçu PDF."
+            >
+              <FileText aria-hidden />
+              Aperçu PDF
+            </Button>
+          )}
+
           <Button variant="outline" onClick={save} disabled={saving || !canWrite}>
             <Save aria-hidden />
             {saving ? "Enregistrement…" : "Enregistrer le brouillon"}

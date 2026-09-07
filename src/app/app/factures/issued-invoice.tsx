@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Lock } from "lucide-react";
+import { ArrowLeft, Download, Lock } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,15 @@ export function IssuedInvoiceView({ invoice }: { invoice: IssuedInvoice }) {
               {formatAmount(invoice.totals.totalTtc, localeCode)}
             </span>
           </span>
+
+          {/* Un simple lien : le PDF est produit par un Route Handler, donc le
+              téléchargement fonctionne même si le JavaScript n'a pas chargé. */}
+          <Button asChild>
+            <a href={`/app/factures/${invoice.id}/pdf`}>
+              <Download aria-hidden />
+              Télécharger le PDF
+            </a>
+          </Button>
         </div>
       </div>
 

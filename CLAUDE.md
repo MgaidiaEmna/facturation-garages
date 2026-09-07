@@ -18,6 +18,7 @@ npm run verify:garages  # espace d'administration des garages (phase 3)
 npm run verify:factures # éditeur de facture (phase 5)
 npm run verify:emission # numérotation et émission (phase 6)
 npm run verify:catalogue # carnet de clients et catalogue (phase 7)
+npm run verify:pdf      # export PDF, contenu du document lu (phase 8)
 ```
 
 Les scripts `verify:*` pilotent l'application **réellement lancée** en se comportant
@@ -244,8 +245,9 @@ document, pas l'écran.
 | `actions.ts` | Server Actions de l'espace garage |
 | `queries.ts` | lectures (`server-only`) |
 
-`compute.ts` et `types.ts` seront consommés **tels quels** par l'export PDF et Factur-X : la
-structuration des données et le calcul ne doivent jamais migrer dans un composant d'affichage.
+`compute.ts` et `types.ts` sont consommés **tels quels** par l'export PDF, et le seront par
+Factur-X : la structuration des données et le calcul ne migrent jamais dans un composant
+d'affichage. C'est `document.ts` qui fait le lien — voir « Export PDF » plus bas.
 Les types vivent dans `types.ts` et non dans `queries.ts` parce que ce dernier importe
 `server-only` — importer un type depuis un module marqué ainsi revient à parier sur son
 effacement par le bundler.
@@ -370,6 +372,45 @@ supprimable** (annulation par avoir, prévue plus tard).
 Isoler la génération PDF de la logique métier : le calcul des totaux et la structuration des
 données (parties, lignes, taxes) doivent être réutilisables tels quels par le futur export
 Factur-X.
+
+### Export PDF (phase 8)
+
+Le PDF est rendu par `@react-pdf/renderer`, **côté serveur**, dans le Route Handler
+`/app/factures/[id]/pdf`. Ses primitives n'ont rien de commun avec le HTML : l'aperçu à
+l'écran ne peut donc PAS être réutilisé tel quel, et il y a bel et bien **deux moteurs de
+rendu**.
+
+| Fichier | Rôle |
+|---|---|
+| `lib/invoice/document.ts` | modèle sémantique — **pur**, consommé par les DEUX rendus |
+| `components/invoice/invoice-preview.tsx` | mise en page HTML |
+| `components/invoice/invoice-pdf.tsx` | mise en page PDF (`server-only`) |
+| `lib/invoice/pdf-filename.ts` | `Facture_{numéro}_{client}.pdf` et `Content-Disposition` |
+
+**`buildInvoiceDocument()` est la parade à la divergence.** Ordre des lignes d'identité du
+vendeur, texte des mentions légales, taux de pénalités substitué, calcul de l'échéance : tout
+cela est décidé une fois, dans le modèle. Une mention ajoutée au modèle apparaît des deux
+côtés ; une mention ajoutée dans un seul composant est un bug. Ce qui reste propre à chaque
+rendu, c'est la mise en page — rien d'autre.
+
+Les PHRASES sont pré-résolues dans le modèle ; les NOMBRES restent bruts et chaque rendu appelle
+`formatAmount()`. Factur-X aura besoin des valeurs, pas de « 1 234,56 € », et c'est sur
+`document.ts` que son générateur XML se branchera — pas sur un composant d'affichage.
+
+**Un Route Handler refait sa propre chaîne de vérification.** Les layouts ne s'y appliquent
+pas : sans `requireGarage()` explicite, l'URL du PDF serait une porte de service. Le RLS ne
+suffit pas à s'en apercevoir — il bloque l'anonyme, mais `invoices_select` laisse tout lire à
+l'administrateur. C'est pourquoi `verify:pdf` vérifie que **l'admin n'obtient pas** le PDF d'un
+garage par cette route : c'est la seule assertion qui tombe si la garde disparaît.
+
+**Une facture émise n'est jamais recalculée** : totaux de la base, identité du vendeur lue dans
+`seller_snapshot`, échéance gelée. Un brouillon, lui, porte un filigrane « BROUILLON », n'a pas
+de numéro, et s'ouvre `inline` là où la facture émise se télécharge (`attachment`).
+
+**Piège à connaître : les espaces fines insécables.** `Intl.NumberFormat('fr-FR')` sépare les
+milliers par U+202F, absent de l'encodage WinAnsi des polices standard du PDF — le montant
+sortirait troué. `invoice-pdf.tsx` les normalise à l'impression (`pdfSafe`) plutôt que
+d'embarquer une police pour deux caractères. `verify:pdf` vérifie qu'aucune n'a survécu.
 
 ### Garde-fous en base (à ne pas contourner depuis l'application)
 

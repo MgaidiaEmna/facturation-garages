@@ -1,16 +1,11 @@
 import { formatAmount, formatDate, formatVatRate } from "@/lib/format";
 import { getLocale, type LocaleCode } from "@/lib/locale";
-import {
-  computeTotals,
-  isUsable,
-  lineTotal,
-  type DraftLine,
-  type InvoiceTotals,
-} from "@/lib/invoice/compute";
+import type { DraftLine, InvoiceTotals } from "@/lib/invoice/compute";
+import { buildInvoiceDocument, type InvoiceDocument } from "@/lib/invoice/document";
 import type { InvoiceParty, InvoiceStatus, SellerIdentity } from "@/lib/invoice/types";
 
 /**
- * Aperçu d'une facture.
+ * Aperçu d'une facture, à l'écran.
  *
  * Volontairement à contre-courant du reste de l'application : fond blanc,
  * bordures fines, pas de bleu marine hors des filets. Ce qu'on regarde ici,
@@ -18,15 +13,22 @@ import type { InvoiceParty, InvoiceStatus, SellerIdentity } from "@/lib/invoice/
  * facture se lit sur du papier blanc.
  *
  * ---------------------------------------------------------------------------
- * LES MONTANTS AFFICHÉS SONT INDICATIFS
+ * LE CONTENU VIENT DE `buildInvoiceDocument()`
+ * ---------------------------------------------------------------------------
+ * Ce composant ne décide plus de ce qui s'imprime : ni l'ordre des lignes
+ * d'identité, ni le texte des mentions légales, ni le calcul de l'échéance.
+ * Tout cela vient du modèle, que le PDF consomme aussi — sans quoi l'écran et
+ * le papier finiraient par dire deux choses différentes. Ce composant décide
+ * de la MISE EN PAGE, rien d'autre.
+ *
+ * ---------------------------------------------------------------------------
+ * LES MONTANTS AFFICHÉS SONT INDICATIFS (sur un brouillon)
  * ---------------------------------------------------------------------------
  * Ils viennent de `computeTotals()`, en JavaScript, pour suivre la frappe.
- * Ceux qui seront imprimés sont recalculés en `numeric` exact par
- * `finalize_invoice()` à l'émission. L'algorithme est le même des deux côtés ;
- * en cas d'écart, c'est le serveur qui a raison.
- *
- * Ce composant ne dépend d'aucun état React : mêmes propriétés, même rendu.
- * Il servira tel quel de base au futur export PDF.
+ * Ceux qui comptent sont recalculés en `numeric` exact par
+ * `finalize_invoice()` à l'émission ; l'algorithme est le même des deux côtés,
+ * et en cas d'écart c'est le serveur qui a raison. Une facture ÉMISE, elle,
+ * reçoit ses totaux figés en propriété et ne recalcule rien.
  */
 
 export function InvoicePreview({
@@ -40,7 +42,7 @@ export function InvoicePreview({
   status = "draft",
   number = null,
   dueDate = null,
-  totals: frozenTotals,
+  totals,
 }: {
   seller: SellerIdentity;
   client: InvoiceParty;
@@ -55,21 +57,31 @@ export function InvoicePreview({
   number?: string | null;
   /** Échéance gelée à l'émission. `null` : on la déduit du délai de règlement. */
   dueDate?: string | null;
-  /**
-   * Totaux calculés par la base. Fournis pour une facture émise, absents pour
-   * un brouillon — auquel cas ils sont recalculés ici, à titre indicatif.
-   * Une facture émise ne doit JAMAIS réafficher un total recalculé : ce qui
-   * a été imprimé et envoyé au client, c'est ce que `finalize_invoice()` a
-   * écrit.
-   */
+  /** Totaux écrits par la base, pour une facture émise. */
   totals?: InvoiceTotals;
 }) {
+  const document = buildInvoiceDocument({
+    seller,
+    client,
+    lines,
+    issueDate,
+    serviceDate,
+    notes,
+    localeCode,
+    status,
+    number,
+    dueDate,
+    totals,
+  });
+
+  return <InvoiceDocumentView document={document} />;
+}
+
+/** Rendu HTML d'un document déjà assemblé. */
+function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
+  const { localeCode, seller, client, dates, lines, totals, legalMentions } = document;
   const locale = getLocale(localeCode);
-  const totals =
-    frozenTotals ?? computeTotals(lines, { localeCode, vatExempt: seller.vatExempt });
-  const visibles = lines.filter(isUsable);
-  const echeance =
-    dueDate ?? (issueDate ? addDays(issueDate, seller.paymentTermDays) : null);
+  const colonnes = seller.vatExempt ? 5 : 6;
 
   return (
     <article className="mx-auto w-full max-w-[210mm] bg-white p-8 text-[13px] leading-relaxed text-zinc-900 shadow-sm ring-1 ring-zinc-200 sm:p-10">
@@ -79,7 +91,21 @@ export function InvoicePreview({
           {/* La bibliothèque de logos arrive en phase 9 : d'ici là, le nom
               du garage tient le haut de la facture. */}
           <p className="text-lg font-semibold text-zinc-900">{seller.name}</p>
-          <SellerLines seller={seller} />
+
+          {seller.identityLines.length === 0 ? (
+            <p className="text-[12px] text-zinc-400">
+              Identité légale incomplète — l&apos;administrateur la renseigne sur votre
+              fiche.
+            </p>
+          ) : (
+            <div className="space-y-0.5 text-[12px] text-zinc-600">
+              {seller.identityLines.map((ligne) => (
+                <p key={ligne} className="whitespace-pre-line">
+                  {ligne}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="text-right">
@@ -87,12 +113,12 @@ export function InvoicePreview({
           {/* Une facture émise ne porte aucune mention d'état : c'est le
               document tel qu'il part chez le client. Seuls le brouillon et
               l'avoir annoncent ce qu'ils sont. */}
-          {status === "draft" ? (
+          {document.status === "draft" ? (
             <p className="mt-1 inline-block rounded border border-zinc-300 px-2 py-0.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
               Brouillon — non émis
             </p>
           ) : null}
-          {status === "cancelled" ? (
+          {document.status === "cancelled" ? (
             <p className="mt-1 inline-block rounded border border-zinc-400 px-2 py-0.5 text-[11px] font-medium tracking-wide text-zinc-700 uppercase">
               Annulée
             </p>
@@ -101,19 +127,23 @@ export function InvoicePreview({
             <div className="flex justify-end gap-2">
               <dt>Date d&apos;émission :</dt>
               <dd className="font-medium text-zinc-900">
-                {issueDate ? formatDate(issueDate) : "—"}
+                {dates.issue ? formatDate(dates.issue, localeCode) : "—"}
               </dd>
             </div>
-            {serviceDate ? (
+            {dates.service ? (
               <div className="flex justify-end gap-2">
                 <dt>Date de prestation :</dt>
-                <dd className="font-medium text-zinc-900">{formatDate(serviceDate)}</dd>
+                <dd className="font-medium text-zinc-900">
+                  {formatDate(dates.service, localeCode)}
+                </dd>
               </div>
             ) : null}
             <div className="flex justify-end gap-2">
               <dt>Numéro :</dt>
-              {number ? (
-                <dd className="font-medium tabular-nums text-zinc-900">{number}</dd>
+              {document.number ? (
+                <dd className="font-medium tabular-nums text-zinc-900">
+                  {document.number}
+                </dd>
               ) : (
                 <dd className="text-zinc-400">attribué à l&apos;émission</dd>
               )}
@@ -129,7 +159,7 @@ export function InvoicePreview({
             Facturé à
           </p>
           <p className="font-medium text-zinc-900">
-            {client.name.trim() || <span className="text-zinc-400">Nom du client</span>}
+            {client.name ?? <span className="text-zinc-400">Nom du client</span>}
           </p>
           {client.address ? (
             <p className="whitespace-pre-line text-zinc-700">{client.address}</p>
@@ -157,17 +187,14 @@ export function InvoicePreview({
             </tr>
           </thead>
           <tbody>
-            {visibles.length === 0 ? (
+            {lines.length === 0 ? (
               <tr>
-                <td
-                  colSpan={seller.vatExempt ? 5 : 6}
-                  className="py-8 text-center text-zinc-400"
-                >
+                <td colSpan={colonnes} className="py-8 text-center text-zinc-400">
                   Ajoutez une prestation pour la voir apparaître ici.
                 </td>
               </tr>
             ) : (
-              visibles.map((line) => (
+              lines.map((line) => (
                 <tr key={line.key} className="border-b border-zinc-200 align-top">
                   <td className="py-2 pe-2 text-zinc-900">{line.description}</td>
                   <td className="py-2 px-2 text-right tabular-nums text-zinc-700">
@@ -183,7 +210,7 @@ export function InvoicePreview({
                     </td>
                   )}
                   <td className="py-2 ps-2 text-right font-medium tabular-nums text-zinc-900">
-                    {formatAmount(lineTotal(line, locale.decimals), localeCode)}
+                    {formatAmount(line.lineTotalHt, localeCode)}
                   </td>
                 </tr>
               ))
@@ -244,80 +271,25 @@ export function InvoicePreview({
         </dl>
       </section>
 
-      {notes ? (
+      {document.notes ? (
         <section className="mt-6 border-t border-zinc-200 pt-4">
           <p className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
             Note
           </p>
-          <p className="mt-1 whitespace-pre-line text-zinc-700">{notes}</p>
+          <p className="mt-1 whitespace-pre-line text-zinc-700">{document.notes}</p>
         </section>
       ) : null}
 
       {/* ---------- Mentions légales ---------- */}
       <footer className="mt-8 space-y-1.5 border-t border-zinc-300 pt-4 text-[11px] leading-relaxed text-zinc-600">
-        {seller.vatExempt ? (
-          <p className="font-medium text-zinc-800">{locale.legalMentions.vatExemptNotice}</p>
+        {legalMentions.vatExempt ? (
+          <p className="font-medium text-zinc-800">{legalMentions.vatExempt}</p>
         ) : null}
-
-        <p>
-          Règlement à {seller.paymentTermDays} jours
-          {echeance ? <> — échéance au {formatDate(echeance)}</> : null}.
-        </p>
-
-        <p>
-          {locale.legalMentions.latePaymentPenalty.replace(
-            "{rate}",
-            String(seller.latePaymentPenaltyRate).replace(".", ","),
-          )}
-        </p>
-
-        <p>{locale.legalMentions.recoveryIndemnity}</p>
-
-        {seller.iban ? (
-          <p>
-            Coordonnées bancaires : {seller.iban}
-            {seller.bic ? ` — BIC ${seller.bic}` : ""}
-          </p>
-        ) : null}
+        <p>{legalMentions.paymentTerms}</p>
+        <p>{legalMentions.latePayment}</p>
+        <p>{legalMentions.recoveryIndemnity}</p>
+        {legalMentions.bankDetails ? <p>{legalMentions.bankDetails}</p> : null}
       </footer>
     </article>
   );
-}
-
-/** Identité légale du vendeur, ligne à ligne, dans l'ordre de la facture. */
-function SellerLines({ seller }: { seller: SellerIdentity }) {
-  const parts = [
-    seller.address,
-    [seller.legalForm, seller.capital ? `capital ${seller.capital}` : null]
-      .filter(Boolean)
-      .join(" — ") || null,
-    seller.siret ? `SIRET ${seller.siret}` : null,
-    seller.rcsCity,
-    seller.vatNumber ? `TVA ${seller.vatNumber}` : null,
-    [seller.phone, seller.email].filter(Boolean).join(" · ") || null,
-  ].filter((part): part is string => Boolean(part));
-
-  if (parts.length === 0) {
-    return (
-      <p className="text-[12px] text-zinc-400">
-        Identité légale incomplète — l&apos;administrateur la renseigne sur votre fiche.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-0.5 text-[12px] text-zinc-600">
-      {parts.map((part) => (
-        <p key={part} className="whitespace-pre-line">
-          {part}
-        </p>
-      ))}
-    </div>
-  );
-}
-
-/** Échéance = date d'émission + délai, en dates civiles (jamais en heures). */
-function addDays(isoDate: string, days: number): string {
-  const [year, month, day] = isoDate.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }

@@ -76,6 +76,7 @@ email*.
 | `npm run verify:factures` | Rejoue l'éditeur de facture (phase 5) |
 | `npm run verify:emission` | Rejoue la numérotation et l'émission (phase 6) |
 | `npm run verify:catalogue` | Rejoue le carnet de clients et le catalogue (phase 7) |
+| `npm run verify:pdf` | Rejoue l'export PDF et lit le contenu des documents (phase 8) |
 | `npx supabase start` / `stop` | Pile Supabase locale (Docker) |
 
 ## Base de données
@@ -272,6 +273,26 @@ npm run verify:catalogue
 > par le JavaScript, absent du HTML servi. Le script éprouve ce dont il dépend — les données
 > que la page lui remet et l'action derrière chaque choix. Le clic attend le test navigateur
 > de la phase 10.
+
+### Vérifier l'export PDF
+
+`npm run verify:pdf` télécharge de vrais PDF par la vraie route et **en lit le texte** :
+format A4, mentions du vendeur figées, numéro, totaux venus de la base, ventilation de TVA,
+délai de règlement et échéance, pénalités de retard, indemnité de 40 €, mention de l'art. 293 B
+en franchise, filigrane du brouillon, et les frontières du point d'entrée (anonyme, autre
+garage, administrateur, identifiant malformé).
+
+Le texte est extrait en décompressant les flux du PDF avec `zlib` — intégré à Node, aucune
+dépendance (`scripts/lib/pdf-texte.mjs`).
+
+```bash
+npm run dev            # dans un autre terminal
+npm run verify:pdf
+```
+
+> **Ce qu'il ne peut pas atteindre.** L'aspect : qu'une colonne déborde ou qu'un filet soit mal
+> placé ne se voit pas dans le texte extrait. Ce qui est éprouvé, c'est le contenu et la
+> conformité, pas la beauté.
 
 ### Vérifier le limiteur de débit
 
@@ -592,7 +613,8 @@ scripts/
       vendeur gelées), liste à onglets brouillons / émises / annulées
 - [x] **Phase 7** — Carnet de clients et catalogue de prestations, avec pré-remplissage
       de l'éditeur (le catalogue est un point de départ, il ne fige rien)
-- [ ] **Phase 8** — Export PDF conforme
+- [x] **Phase 8** — Export PDF conforme : A4, mentions légales françaises, totaux figés,
+      brouillon filigrané, structure prête pour Factur-X
 - [ ] **Phase 9** — Logos et bibliothèque premium
 - [ ] **Phase 10** — Finitions, tests d'isolation RLS, accessibilité
 - [ ] **Phase 11** — Déploiement GitHub + Vercel
