@@ -123,14 +123,26 @@ export function InvoiceEditor({
     );
   }
 
+  /**
+   * Retire une ligne — ou la VIDE si c'est la dernière.
+   *
+   * Le repli « une ligne vierge plutôt qu'aucune » existait déjà, mais il
+   * était inatteignable : le bouton était désactivé dès qu'il ne restait
+   * qu'une ligne. Or un éditeur neuf s'ouvre avec exactement une ligne, donc
+   * la poubelle y était morte au moment où l'on essaie le plus naturellement
+   * — sans autre indice qu'une opacité réduite sur une icône déjà pâle.
+   * Cliquer ne faisait rien et n'expliquait rien.
+   *
+   * La clé est tirée AVANT le `setLines` : la fonction de mise à jour reste
+   * pure, donc rejouable sans effet de bord.
+   */
   function removeLine(key: string) {
-    // La clé est tirée AVANT le `setLines` : la fonction de mise à jour reste
-    // pure, donc rejouable sans effet de bord.
     const remplacement = emptyLine(nouvelleCle(), localeCode);
     setLines((current) => {
       const rest = current.filter((line) => line.key !== key);
-      // Ne jamais laisser l'éditeur sans aucune ligne : on retomberait sur un
-      // écran vide sans savoir par où reprendre.
+      // Jamais d'éditeur sans aucune ligne : on retomberait sur un écran vide
+      // sans savoir par où reprendre. La clé neuve remonte le composant, donc
+      // les champs repartent réellement à zéro.
       return rest.length > 0 ? rest : [remplacement];
     });
   }
@@ -498,16 +510,21 @@ function LineRow({
           onSelect={onPickService}
           disabled={!canWrite}
         />
+        {/* Jamais désactivé : sur la dernière ligne, la poubelle la VIDE au
+            lieu de la retirer. Un bouton grisé sans explication se lit comme
+            un bouton cassé — et c'est exactement ce qu'on nous a rapporté. */}
         <Button
           type="button"
           variant="ghost"
           size="sm"
           onClick={onRemove}
-          disabled={!removable}
+          title={removable ? `Supprimer la ligne ${index + 1}` : "Vider cette ligne"}
           className="text-muted-foreground hover:text-destructive"
         >
           <Trash2 aria-hidden />
-          <span className="sr-only">Supprimer la ligne {index + 1}</span>
+          <span className="sr-only">
+            {removable ? `Supprimer la ligne ${index + 1}` : "Vider cette ligne"}
+          </span>
         </Button>
         </div>
       </div>
