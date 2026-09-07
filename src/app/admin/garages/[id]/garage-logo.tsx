@@ -7,16 +7,16 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { AuthFormMessage } from "@/components/auth/auth-form-message";
 import { SectionHeader } from "@/components/page-header";
+import { LogoFileField } from "@/components/logos/logo-file-field";
 import {
   deleteLogoForGarageAction,
   setDefaultLogoForGarageAction,
   uploadLogoForGarageAction,
 } from "@/lib/logos/actions";
-import { ACCEPT_HTML } from "@/lib/logos/schema";
 import type { Logo } from "@/lib/logos/types";
 import { cn } from "@/lib/utils";
 
@@ -182,14 +182,9 @@ export function GarageLogo({
       )}
 
       <form ref={formulaire} action={televerser} className="grid gap-3 sm:grid-cols-3">
-        <Field className="sm:col-span-2">
-          <FieldLabel htmlFor="logo-file">Ajouter un logo</FieldLabel>
-          <Input id="logo-file" name="file" type="file" accept={ACCEPT_HTML} required />
-          <FieldDescription>
-            PNG ou JPEG, 2 Mio maximum. Le SVG n&apos;est pas accepté : il ne
-            s&apos;imprimerait pas dans le PDF.
-          </FieldDescription>
-        </Field>
+        <div className="sm:col-span-2">
+          <LogoFileField id="logo-file" />
+        </div>
 
         <Field>
           <FieldLabel htmlFor="logo-label">Nom</FieldLabel>

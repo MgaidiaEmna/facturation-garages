@@ -37,10 +37,18 @@ export const TAILLE_MAX = 2 * 1024 * 1024;
 
 const LIBELLE_MAX = 80;
 
-/** Message unique, pour que l'écran et le serveur disent la même chose. */
+/**
+ * Messages uniques, pour que l'écran et le serveur disent la même chose.
+ *
+ * Ils comptent plus qu'il n'y paraît : le contrôle côté navigateur
+ * (`LogoFileField`) et la validation zod de la Server Action affichent
+ * exactement la même phrase. Deux formulations donneraient l'impression de
+ * deux refus différents pour un seul problème.
+ */
 export const MESSAGE_TYPE =
   "Format non accepté : seuls le PNG et le JPEG peuvent figurer sur une facture PDF.";
-export const MESSAGE_TAILLE = "Fichier trop lourd : 2 Mio maximum.";
+export const MESSAGE_TAILLE =
+  "Image trop lourde (2 Mo maximum) — choisissez une image plus légère.";
 
 export const logoUploadSchema = z.object({
   label: z

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
+import { LogoFileField } from "@/components/logos/logo-file-field";
 import { Input } from "@/components/ui/input";
 import { AuthFormMessage } from "@/components/auth/auth-form-message";
 import {
@@ -17,7 +18,6 @@ import {
   uploadLogoAction,
   type LogoFormState,
 } from "@/lib/logos/actions";
-import { ACCEPT_HTML } from "@/lib/logos/schema";
 import type { Logo } from "@/lib/logos/types";
 import { cn } from "@/lib/utils";
 
@@ -62,22 +62,16 @@ export function LogoLibrary({
             <AuthFormMessage>{state.error}</AuthFormMessage>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field data-invalid={Boolean(erreurs.file) || undefined}>
-                <FieldLabel htmlFor="file">Fichier</FieldLabel>
-                <Input
-                  id="file"
-                  name="file"
-                  type="file"
-                  accept={ACCEPT_HTML}
-                  disabled={!canWrite}
-                  required
-                />
-                <FieldDescription>
-                  PNG ou JPEG, 2 Mio maximum. Le SVG n&apos;est pas accepté : il ne
-                  s&apos;imprimerait pas dans le PDF.
-                </FieldDescription>
-                <FieldError>{erreurs.file?.[0]}</FieldError>
-              </Field>
+              <div>
+                <LogoFileField disabled={!canWrite} />
+                {/* Le serveur peut refuser pour une raison que le navigateur
+                    n'a pas vue — un fichier renommé, par exemple. */}
+                {erreurs.file?.[0] ? (
+                  <p role="alert" className="mt-1 text-sm text-destructive">
+                    {erreurs.file[0]}
+                  </p>
+                ) : null}
+              </div>
 
               <Field data-invalid={Boolean(erreurs.label) || undefined}>
                 <FieldLabel htmlFor="label">Nom du logo</FieldLabel>

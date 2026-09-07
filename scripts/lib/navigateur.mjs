@@ -89,6 +89,10 @@ export class Navigateur {
       status: response.status,
       location: response.headers.get("location"),
       message: trouve ? JSON.parse(`"${trouve[1]}"`) : null,
+      // La charge utile brute. `message` ne remonte que les états portant une
+      // clé `error` : une action qui répond par des `fieldErrors` — ou une page
+      // d'erreur de Next — ne s'y voit pas.
+      corps: texte,
     };
   }
 

@@ -75,6 +75,15 @@ const PNG_1x1 = Buffer.from(
   "base64",
 );
 
+/**
+ * Un PNG valide de plus de 2 Mio.
+ *
+ * Un vrai en-tête PNG suivi d'un remplissage : ce qui est éprouvé, c'est le
+ * refus par la TAILLE, pas par le format — un fichier bidon serait refusé pour
+ * la mauvaise raison et le test ne prouverait rien.
+ */
+const PNG_LOURD = Buffer.concat([PNG_1x1, Buffer.alloc(2 * 1024 * 1024 + 64 * 1024, 0x20)]);
+
 /** Un SVG minimal : refusé par le bucket, et c'est le but. */
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>');
 
@@ -309,14 +318,58 @@ async function main() {
   // sélecteur sans rien à sélectionner n'aurait rien à dire.
 
   // -------------------------------------------------------------------------
-  section("5. Le logo sur la facture, et son gel");
+  section("5. Taille : refus doux, jamais de page cassée");
 
-  // On enregistre la ligne `logos` du fichier déjà téléversé.
+  // La limite du bucket, éprouvée directement.
+  res = await televerser(PREMIUM.jeton, `${PREMIUM.id}/${RUN}-lourd.png`, PNG_LOURD);
+  check("le bucket refuse un fichier de plus de 2 Mio", res.status >= 400,
+    `HTTP ${res.status} ${res.corps.slice(0, 120)}`);
+
+  // La Server Action, par le vrai formulaire : elle doit RÉPONDRE, pas planter.
+  // C'est le chemin qui produisait « Body exceeded 1 MB limit ».
+  let envoi = await navPremium.submit("/app/logos", {
+    file: new File([PNG_LOURD], "gros.png", { type: "image/png" }),
+    label: "Trop lourd",
+  });
+  check("la Server Action répond au lieu de planter",
+    envoi.status === 200, `HTTP ${envoi.status}`);
+  check("elle refuse en une phrase compréhensible",
+    envoi.corps.includes("Image trop lourde"),
+    envoi.corps.slice(0, 200));
+  check("aucun logo n'a été créé au passage",
+    (await enService("GET", `/rest/v1/logos?garage_id=eq.${PREMIUM.id}&select=id`)).data
+      ?.length === 0);
+
+  // Et un fichier valide passe par ce même chemin.
+  envoi = await navPremium.submit("/app/logos", {
+    file: new File([PNG_1x1], "petit.png", { type: "image/png" }),
+    label: "Logo léger",
+  });
+  check("un fichier valide est accepté par la Server Action",
+    envoi.status === 200 && !envoi.corps.includes("Image trop lourde"),
+    `HTTP ${envoi.status}`);
+
+  const { data: apresEnvoi } = await enService(
+    "GET",
+    `/rest/v1/logos?garage_id=eq.${PREMIUM.id}&select=id,label,is_default`,
+  );
+  check("le logo est bien enregistré", (apresEnvoi ?? []).length === 1,
+    `${(apresEnvoi ?? []).length} logo(s)`);
+  check("le premier logo devient le défaut", seul(apresEnvoi)?.is_default === true);
+
+  // Le formulaire annonce la limite avant même l'envoi.
+  page = await navPremium.get("/app/logos");
+  check("la limite est annoncée dans le formulaire", page.body.includes("2 Mo maximum"));
+
+  // -------------------------------------------------------------------------
+  section("6. Le logo sur la facture, et son gel");
+
+  // On enregistre la ligne `logos` du fichier téléversé en section 2, en plus
+  // de celui posé par la Server Action.
   res = await rest(PREMIUM.jeton, "POST", "/rest/v1/logos", {
     garage_id: PREMIUM.id,
     storage_path: chemPremium,
     label: "Logo de test",
-    is_default: true,
   });
   const logo = seul(res.data);
   check("le logo est enregistré dans la bibliothèque", res.status === 201,

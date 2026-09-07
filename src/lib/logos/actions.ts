@@ -6,7 +6,14 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin, requireGarage } from "@/lib/auth/session";
 import { fieldErrorsOf } from "@/lib/validation/fields";
-import { extensionPour, logoIdSchema, logoLabelSchema, logoUploadSchema } from "./schema";
+import {
+  extensionPour,
+  logoIdSchema,
+  logoLabelSchema,
+  logoUploadSchema,
+  MESSAGE_TAILLE,
+  MESSAGE_TYPE,
+} from "./schema";
 
 /**
  * Bibliothèque de logos : téléversement, libellé, défaut, suppression.
@@ -67,6 +74,17 @@ async function televerser(
     .upload(chemin, file, { contentType: file.type, upsert: false });
 
   if (erreurFichier) {
+    // Le bucket a le dernier mot sur la taille et le format. Ses messages sont
+    // techniques (« The object exceeded the maximum allowed size ») : on les
+    // traduit dans les MÊMES phrases que le navigateur et zod, pour qu'un seul
+    // problème n'ait pas trois formulations.
+    const brut = erreurFichier.message.toLowerCase();
+    if (brut.includes("exceed") || brut.includes("too large") || brut.includes("size")) {
+      return { fieldErrors: { file: [MESSAGE_TAILLE] } };
+    }
+    if (brut.includes("mime") || brut.includes("type")) {
+      return { fieldErrors: { file: [MESSAGE_TYPE] } };
+    }
     return { error: `Téléversement impossible : ${erreurFichier.message}` };
   }
 
