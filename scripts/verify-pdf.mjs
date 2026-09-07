@@ -261,24 +261,56 @@ async function main() {
   check("l'indemnité forfaitaire de 40 € est imprimée",
     contient("Indemnité forfaitaire pour frais de recouvrement") && contient("40 €"));
   check("les coordonnées bancaires sont imprimées",
-    contient("FR7630006000011234567890189") && contient("BIC AGRIFRPP"));
+    contient("IBAN FR7630006000011234567890189") && contient("BIC AGRIFRPP"));
 
   check("aucune mention de brouillon sur une facture émise", !contient("BROUILLON"));
 
   // --- La DISPOSITION, pas seulement la présence ---
   // Le texte est extrait dans l'ordre de dessin : si le SIRET vient après le
   // total, c'est qu'il est en pied de page. Vérifier la seule présence
-  // laisserait passer un retour silencieux à l'ancien en-tête.
+  // laisserait passer un retour silencieux à l'ancien en-tête — ou une
+  // colonne du pied vidée au profit de l'autre.
   const compact = compacter(pdf.texte);
-  const posSiret = compact.indexOf(compacter("SIRET 81234567800012"));
+  const posTitre = compact.indexOf(compacter("FACTURE"));
+  const posVendeur = compact.indexOf(compacter("VENDEUR"));
+  const posClient = compact.indexOf(compacter("FACTURÉ À"));
+  const posDesignation = compact.indexOf(compacter("DÉSIGNATION"));
   const posTotal = compact.indexOf(compacter("Total TTC"));
   const posAdresse = compact.indexOf(compacter("24 avenue des Frères Lumière"));
+  const posSiret = compact.indexOf(compacter("SIRET 81234567800012"));
+  const posCapital = compact.indexOf(compacter("SARL — capital 10 000 €"));
+  const posIban = compact.indexOf(compacter("IBAN FR7630006000011234567890189"));
+  const posIndemnite = compact.indexOf(compacter("Indemnité forfaitaire"));
+
+  // En-tête : l'objet à gauche, l'émetteur à droite. Le titre est dessiné en
+  // premier ; le logo et la dénomination suivent dans la colonne de droite.
+  check("le titre FACTURE ouvre le document",
+    posTitre >= 0 && posTitre < posVendeur, `titre ${posTitre} / vendeur ${posVendeur}`);
+
+  // Vendeur et client côte à côte, SOUS l'en-tête et AVANT le tableau. Les
+  // deux blocs sont dessinés l'un après l'autre : gauche puis droite.
+  check("le bloc VENDEUR précède le bloc client",
+    posVendeur >= 0 && posVendeur < posClient,
+    `vendeur ${posVendeur} / client ${posClient}`);
+  check("les deux parties sont sous l'en-tête et avant le tableau",
+    posClient >= 0 && posClient < posDesignation,
+    `client ${posClient} / désignation ${posDesignation}`);
   check("l'adresse du siège est en tête",
     posAdresse >= 0 && posAdresse < posTotal, `adresse ${posAdresse} / total ${posTotal}`);
+
+  // Pied sur deux colonnes : identification à gauche (dessinée en premier),
+  // forme sociale et banque à droite, puis les mentions de règlement en
+  // pleine largeur. Aucune de ces mentions n'a le droit de disparaître.
   check("les mentions légales d'identité sont en PIED, après les totaux",
     posSiret > posTotal, `SIRET ${posSiret} / total ${posTotal}`);
   check("le SIRET ne figure plus dans l'en-tête",
     posSiret > posAdresse, `SIRET ${posSiret} / adresse ${posAdresse}`);
+  check("la colonne droite du pied porte la forme juridique et le capital",
+    posCapital > posSiret, `capital ${posCapital} / SIRET ${posSiret}`);
+  check("l'IBAN a rejoint la colonne droite du pied",
+    posIban > posCapital, `IBAN ${posIban} / capital ${posCapital}`);
+  check("les mentions de règlement ferment le pied, sous les deux colonnes",
+    posIndemnite > posIban, `indemnité ${posIndemnite} / IBAN ${posIban}`);
 
   // --- Le piège des espaces fines ---
   // `Intl` sépare les milliers par une espace fine insécable, absente de
@@ -323,23 +355,39 @@ async function main() {
   const debutDoc = page.body.indexOf("<article");
   const document = page.body.slice(debutDoc, page.body.indexOf("</article>", debutDoc));
 
+  const ecranTitre = document.indexOf("FACTURE");
+  const ecranVendeur = document.indexOf("Vendeur");
+  const ecranClient = document.indexOf("Facturé à");
   const ecranSiret = document.indexOf("SIRET 81234567800012");
   const ecranTotal = document.indexOf("Total TTC");
   const ecranAdresse = document.indexOf("Frères Lumière");
+  const ecranCapital = document.indexOf("SARL — capital 10 000 €");
+  const ecranIban = document.indexOf("IBAN FR7630006000011234567890189");
+  const ecranIndemnite = document.indexOf("Indemnité forfaitaire");
 
   check("le document est bien isolé du reste de la page",
     debutDoc > 0 && document.length > 500 && ecranTotal > 0,
     `${document.length} caractères`);
+  check("à l'écran aussi, le titre FACTURE ouvre le document",
+    ecranTitre >= 0 && ecranTitre < ecranVendeur,
+    `titre ${ecranTitre} / vendeur ${ecranVendeur}`);
+  check("à l'écran aussi, le vendeur et le client sont côte à côte",
+    ecranVendeur >= 0 && ecranVendeur < ecranClient,
+    `vendeur ${ecranVendeur} / client ${ecranClient}`);
   check("à l'écran aussi, les mentions d'identité sont sous les totaux",
     ecranSiret > ecranTotal, `SIRET ${ecranSiret} / total ${ecranTotal}`);
   check("à l'écran aussi, l'adresse du siège est en tête",
     ecranAdresse >= 0 && ecranAdresse < ecranTotal,
     `adresse ${ecranAdresse} / total ${ecranTotal}`);
+  check("à l'écran aussi, le pied porte deux colonnes puis le règlement",
+    ecranSiret < ecranCapital && ecranCapital < ecranIban && ecranIban < ecranIndemnite,
+    `SIRET ${ecranSiret} / capital ${ecranCapital} / IBAN ${ecranIban} / ` +
+      `indemnité ${ecranIndemnite}`);
   check("le bloc client vient avant le tableau des prestations",
     document.indexOf("Facturé à") < document.indexOf("DÉSIGNATION") ||
       document.indexOf("Facturé à") < document.indexOf("Désignation"));
   check("les mêmes mentions légales figurent des deux côtés",
-    ["RCS Lyon", "FR12812345678", "SARL"].every(
+    ["RCS Lyon", "FR12812345678", "SARL", "AGRIFRPP"].every(
       (m) => page.body.includes(m) && contientTexte(pdf.texte, m),
     ));
 

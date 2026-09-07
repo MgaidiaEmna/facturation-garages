@@ -73,18 +73,20 @@ const styles = StyleSheet.create({
 
   entete: { flexDirection: "row", justifyContent: "space-between", gap: 24 },
   enteteGauche: { flexGrow: 1, flexShrink: 1, maxWidth: "58%" },
-  enteteDroite: { textAlign: "right", flexShrink: 0 },
+  /** Le logo tient la droite ; il est le premier repère visuel du document. */
+  enteteDroite: { flexShrink: 0, maxWidth: "40%", alignItems: "flex-end" },
   filetEntete: { borderBottomWidth: 1, borderBottomColor: ZINC[300], paddingBottom: 14 },
 
-  logo: { maxHeight: 46, maxWidth: 170, marginBottom: 6, objectFit: "contain" },
-  vendeurNom: { fontSize: 13, fontFamily: "Helvetica-Bold", marginBottom: 4 },
-  vendeurLigne: { fontSize: 8, color: ZINC[600] },
+  logo: { maxHeight: 76, maxWidth: 200, marginBottom: 6, objectFit: "contain" },
+  logoNom: { fontSize: 13, fontFamily: "Helvetica-Bold", textAlign: "right" },
+  vendeurNom: { fontSize: 11, fontFamily: "Helvetica-Bold", marginBottom: 2 },
+  vendeurLigne: { fontSize: 8.5, color: ZINC[700] },
   vendeurAbsent: { fontSize: 8, color: ZINC[400] },
 
   titre: { fontSize: 18, fontFamily: "Helvetica-Bold", letterSpacing: 0.5 },
   etat: {
     marginTop: 4,
-    alignSelf: "flex-end",
+    alignSelf: "flex-start",
     borderWidth: 1,
     borderColor: ZINC[300],
     borderRadius: 2,
@@ -97,8 +99,9 @@ const styles = StyleSheet.create({
   meta: { marginTop: 8, fontSize: 8, color: ZINC[600] },
   metaValeur: { color: ZINC[900], fontFamily: "Helvetica-Bold" },
 
-  client: { marginTop: 22, alignItems: "flex-start" },
-  clientBloc: { width: "58%" },
+  /** Vendeur et client CÔTE À CÔTE : deux colonnes, une seule ligne de lecture. */
+  parties: { marginTop: 22, flexDirection: "row", justifyContent: "space-between", gap: 24 },
+  partie: { width: "48%" },
   surtitre: {
     fontSize: 7,
     color: ZINC[500],
@@ -171,11 +174,16 @@ const styles = StyleSheet.create({
     lineHeight: 1.55,
   },
   mentionForte: { color: ZINC[900], fontFamily: "Helvetica-Bold", marginBottom: 3 },
-  mentionIdentite: {
-    color: ZINC[900],
-    fontFamily: "Helvetica-Bold",
-    marginBottom: 5,
-    lineHeight: 1.45,
+  /** Les deux colonnes d'identité du pied, au-dessus des mentions de règlement. */
+  pieds: { flexDirection: "row", justifyContent: "space-between", gap: 20 },
+  piedColonne: { width: "48%" },
+  piedNom: { color: ZINC[900], fontFamily: "Helvetica-Bold", marginBottom: 1 },
+  piedLigne: { color: ZINC[600] },
+  reglement: {
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: ZINC[200],
+    paddingTop: 6,
   },
   mentionAbsente: { color: ZINC[400], marginBottom: 5 },
 
@@ -211,6 +219,9 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
   const date = (valeur: string) => pdfSafe(formatDate(valeur, localeCode));
 
   const brouillon = document.status === "draft";
+  // Une fiche vide ne doit pas produire deux colonnes vides : on le dit.
+  const identiteComplete =
+    seller.footerIdentityLines.length > 0 || seller.footerLegalLines.length > 0;
 
   return (
     <Document
@@ -230,35 +241,9 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
         ) : null}
 
         <View style={styles.corps}>
-          {/* ---------- En-tête ---------- */}
+          {/* ---------- En-tête : l'objet à gauche, l'émetteur à droite ---------- */}
           <View style={[styles.entete, styles.filetEntete]}>
             <View style={styles.enteteGauche}>
-              {/* `src` est une `data:` URI : les octets ont été téléchargés par
-                  le serveur depuis le bucket privé. Passer l'URL signée ferait
-                  dépendre le rendu d'un aller-retour réseau au moment de
-                  l'impression — et d'une signature qui peut avoir expiré. */}
-              {seller.logoUrl ? (
-                // `Image` vient de @react-pdf/renderer, pas du DOM : il n'a pas
-                // d'attribut `alt`, et un PDF n'a pas de texte alternatif. La
-                // dénomination du vendeur figure juste en dessous, en texte.
-                // eslint-disable-next-line jsx-a11y/alt-text
-                <Image style={styles.logo} src={seller.logoUrl} />
-              ) : null}
-              <Text style={styles.vendeurNom}>{pdfSafe(seller.name)}</Text>
-              {/* L'adresse du siège, et rien d'autre : les mentions légales
-                  d'identité sont rassemblées en pied de page. */}
-              {seller.headerLines.length === 0 ? (
-                <Text style={styles.vendeurAbsent}>Adresse du siège non renseignée.</Text>
-              ) : (
-                seller.headerLines.map((ligne) => (
-                  <Text key={ligne} style={styles.vendeurLigne}>
-                    {pdfSafe(ligne)}
-                  </Text>
-                ))
-              )}
-            </View>
-
-            <View style={styles.enteteDroite}>
               <Text style={styles.titre}>FACTURE</Text>
               {brouillon ? <Text style={styles.etat}>BROUILLON — NON EMIS</Text> : null}
               {document.status === "cancelled" ? (
@@ -266,6 +251,14 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
               ) : null}
 
               <View style={styles.meta}>
+                <Text>
+                  Numéro :{" "}
+                  {document.number ? (
+                    <Text style={styles.metaValeur}>{document.number}</Text>
+                  ) : (
+                    <Text style={{ color: ZINC[400] }}>attribué à l&apos;émission</Text>
+                  )}
+                </Text>
                 <Text>
                   Date d&apos;émission :{" "}
                   <Text style={styles.metaValeur}>
@@ -278,21 +271,45 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
                     <Text style={styles.metaValeur}>{date(dates.service)}</Text>
                   </Text>
                 ) : null}
-                <Text>
-                  Numéro :{" "}
-                  {document.number ? (
-                    <Text style={styles.metaValeur}>{document.number}</Text>
-                  ) : (
-                    <Text style={{ color: ZINC[400] }}>attribué à l&apos;émission</Text>
-                  )}
-                </Text>
               </View>
+            </View>
+
+            {/* Le logo, en grand, et la dénomination dessous — rien d'autre.
+                `src` est une `data:` URI : les octets ont été téléchargés par
+                le serveur depuis le bucket privé. Passer l'URL signée ferait
+                dépendre le rendu d'un aller-retour réseau au moment de
+                l'impression — et d'une signature qui peut avoir expiré. */}
+            <View style={styles.enteteDroite}>
+              {seller.logoUrl ? (
+                // `Image` vient de @react-pdf/renderer, pas du DOM : il n'a pas
+                // d'attribut `alt`, et un PDF n'a pas de texte alternatif. La
+                // dénomination du vendeur figure juste en dessous, en texte.
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image style={styles.logo} src={seller.logoUrl} />
+              ) : null}
+              <Text style={styles.logoNom}>{pdfSafe(seller.name)}</Text>
             </View>
           </View>
 
-          {/* ---------- Client ---------- */}
-          <View style={styles.client}>
-            <View style={styles.clientBloc}>
+          {/* ---------- Vendeur et client, côte à côte ---------- */}
+          <View style={styles.parties}>
+            <View style={styles.partie}>
+              <Text style={styles.surtitre}>VENDEUR</Text>
+              <Text style={styles.vendeurNom}>{pdfSafe(seller.name)}</Text>
+              {/* L'adresse du siège, et rien d'autre : les mentions légales
+                  d'identité sont rassemblées en pied de page. */}
+              {seller.addressLines.length === 0 ? (
+                <Text style={styles.vendeurAbsent}>Adresse du siège non renseignée.</Text>
+              ) : (
+                seller.addressLines.map((ligne) => (
+                  <Text key={ligne} style={styles.vendeurLigne}>
+                    {pdfSafe(ligne)}
+                  </Text>
+                ))
+              )}
+            </View>
+
+            <View style={styles.partie}>
               <Text style={styles.surtitre}>FACTURÉ À</Text>
               <Text style={styles.clientNom}>
                 {client.name ? pdfSafe(client.name) : "—"}
@@ -404,26 +421,45 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
         <View style={styles.mentions} wrap={false}>
           {/* Identité légale du vendeur : descendue de l'en-tête, jamais
               retirée. Le Code de commerce l'exige sur la facture, pas en haut
-              de la facture. */}
-          {seller.legalIdentityLines.length > 0 ? (
-            <Text style={styles.mentionIdentite}>
-              {pdfSafe(`${seller.name} — ${seller.legalIdentityLines.join(" · ")}`)}
-            </Text>
+              de la facture. Deux colonnes — identification à gauche, forme
+              sociale et coordonnées bancaires à droite — parce qu'une seule
+              phrase à points médians devenait illisible. La LISTE, elle, n'a
+              pas changé. */}
+          {identiteComplete ? (
+            <View style={styles.pieds}>
+              <View style={styles.piedColonne}>
+                <Text style={styles.piedNom}>{pdfSafe(seller.name)}</Text>
+                {seller.footerIdentityLines.map((ligne) => (
+                  <Text key={ligne} style={styles.piedLigne}>
+                    {pdfSafe(ligne)}
+                  </Text>
+                ))}
+              </View>
+              <View style={styles.piedColonne}>
+                {seller.footerLegalLines.map((ligne) => (
+                  <Text key={ligne} style={styles.piedLigne}>
+                    {pdfSafe(ligne)}
+                  </Text>
+                ))}
+              </View>
+            </View>
           ) : (
             <Text style={styles.mentionAbsente}>
               Mentions légales du vendeur incomplètes.
             </Text>
           )}
 
-          {legalMentions.vatExempt ? (
-            <Text style={styles.mentionForte}>{pdfSafe(legalMentions.vatExempt)}</Text>
-          ) : null}
-          <Text>{pdfSafe(legalMentions.paymentTerms)}</Text>
-          <Text>{pdfSafe(legalMentions.latePayment)}</Text>
-          <Text>{pdfSafe(legalMentions.recoveryIndemnity)}</Text>
-          {legalMentions.bankDetails ? (
-            <Text>{pdfSafe(legalMentions.bankDetails)}</Text>
-          ) : null}
+          {/* Les mentions de règlement restent en PLEINE LARGEUR : ce sont des
+              phrases, pas des identifiants, et les couper en deux colonnes les
+              rendrait pénibles à lire. */}
+          <View style={styles.reglement}>
+            {legalMentions.vatExempt ? (
+              <Text style={styles.mentionForte}>{pdfSafe(legalMentions.vatExempt)}</Text>
+            ) : null}
+            <Text>{pdfSafe(legalMentions.paymentTerms)}</Text>
+            <Text>{pdfSafe(legalMentions.latePayment)}</Text>
+            <Text>{pdfSafe(legalMentions.recoveryIndemnity)}</Text>
+          </View>
         </View>
 
         <Text

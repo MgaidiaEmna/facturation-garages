@@ -71,25 +71,35 @@ export interface DocumentSeller {
    */
   logoUrl: string | null;
   /**
-   * Ce qui s'imprime EN TÊTE, sous le nom : l'adresse du siège, et rien
-   * d'autre. Un en-tête de facture doit se lire d'un coup d'œil — qui émet,
-   * à qui, quand, pour combien.
+   * Le bloc « VENDEUR », sous l'en-tête, en regard du bloc client : l'adresse
+   * du siège, et rien d'autre. Qui émet, à qui, quand, pour combien — c'est
+   * tout ce qu'on doit lire d'un coup d'œil en haut d'une facture.
    */
-  headerLines: string[];
+  addressLines: string[];
   /**
-   * Les mentions d'identité obligatoires, imprimées EN PIED : SIRET, forme
-   * juridique et capital, RCS et ville du greffe, n° de TVA
-   * intracommunautaire, contact.
+   * Pied, COLONNE GAUCHE : adresse, SIREN/SIRET, n° de TVA
+   * intracommunautaire, contact. Imprimée sous la dénomination, qui la
+   * surmonte en gras.
    *
-   * Déplacées, jamais retirées. Le Code de commerce les exige sur la facture,
-   * pas en haut de la facture — mais il les exige. Un rendu qui les omettrait
-   * produirait un document non conforme, et c'est ce modèle qui empêche l'un
-   * des deux rendus de les oublier tout seul.
+   * Déplacées, jamais retirées. Le Code de commerce exige ces mentions sur la
+   * facture, pas en haut de la facture — mais il les exige. Un rendu qui les
+   * omettrait produirait un document non conforme, et c'est ce modèle qui
+   * empêche l'un des deux rendus de les oublier tout seul.
    *
    * Vide quand la fiche n'a rien : c'est au rendu de le signaler, pas au
    * modèle de mentir.
    */
-  legalIdentityLines: string[];
+  footerIdentityLines: string[];
+  /**
+   * Pied, COLONNE DROITE : forme juridique et capital, RCS et ville du
+   * greffe, IBAN, BIC.
+   *
+   * Deux colonnes plutôt qu'une phrase à rallonge, mais la LISTE est la même :
+   * ce qui a bougé, c'est la mise en page, pas la conformité. Les coordonnées
+   * bancaires ont rejoint ce bloc — elles identifient le vendeur autant
+   * qu'elles disent où payer — et ne sont donc plus une mention de règlement.
+   */
+  footerLegalLines: string[];
   vatExempt: boolean;
   paymentTermDays: number;
 }
@@ -112,8 +122,6 @@ export interface DocumentLegalMentions {
   latePayment: string;
   /** Indemnité forfaitaire de 40 € (art. L441-10 et D441-5). */
   recoveryIndemnity: string;
-  /** Coordonnées bancaires, si le vendeur en a renseigné. */
-  bankDetails: string | null;
 }
 
 export interface InvoiceDocument {
@@ -174,32 +182,48 @@ function addDays(isoDate: string, days: number): string {
 }
 
 /**
- * L'en-tête : l'adresse du siège, sous le nom du vendeur.
+ * Le bloc « VENDEUR » du haut : l'adresse du siège, sous la dénomination.
  *
  * L'ordre et le contenu sont des décisions d'impression, pas des détails : ils
  * sont ici pour que l'écran et le papier ne les prennent pas chacun de leur
  * côté.
  */
-export function sellerHeaderLines(seller: SellerIdentity): string[] {
+export function sellerAddressLines(seller: SellerIdentity): string[] {
   return [seller.address].filter((part): part is string => Boolean(part));
 }
 
 /**
- * Le pied : toutes les mentions d'identité que la loi impose.
+ * Pied, colonne GAUCHE : où siège le vendeur et sous quels numéros il émet.
  *
- * Rien n'est perdu en descendant ici — c'est la même liste qu'avant, moins
- * l'adresse restée en tête. Les coordonnées bancaires, elles, sont déjà une
- * mention de pied (`legalMentions.bankDetails`) et n'ont pas à être répétées.
+ * L'adresse y reparaît, et c'est voulu : le bloc « VENDEUR » du haut sert la
+ * lecture, ce pied-ci sert la conformité. Un lecteur qui découpe le bas d'une
+ * facture doit y trouver l'émetteur complet.
  */
-export function sellerLegalLines(seller: SellerIdentity): string[] {
+export function sellerFooterIdentityLines(seller: SellerIdentity): string[] {
+  return [
+    seller.address,
+    seller.siret ? `SIRET ${seller.siret}` : null,
+    seller.vatNumber ? `TVA ${seller.vatNumber}` : null,
+    [seller.phone, seller.email].filter(Boolean).join(" · ") || null,
+  ].filter((part): part is string => Boolean(part));
+}
+
+/**
+ * Pied, colonne DROITE : sous quelle forme sociale, et par où l'on paie.
+ *
+ * Rien n'est perdu par rapport à la liste d'avant — forme juridique, capital,
+ * RCS et greffe sont là, l'IBAN et le BIC les rejoignent. Redistribuer sur
+ * deux colonnes ne retire aucune mention obligatoire ; c'est la seule chose
+ * qu'on s'interdit ici.
+ */
+export function sellerFooterLegalLines(seller: SellerIdentity): string[] {
   return [
     [seller.legalForm, seller.capital ? `capital ${seller.capital}` : null]
       .filter(Boolean)
       .join(" — ") || null,
-    seller.siret ? `SIRET ${seller.siret}` : null,
     seller.rcsCity,
-    seller.vatNumber ? `TVA ${seller.vatNumber}` : null,
-    [seller.phone, seller.email].filter(Boolean).join(" · ") || null,
+    seller.iban ? `IBAN ${seller.iban}` : null,
+    seller.bic ? `BIC ${seller.bic}` : null,
   ].filter((part): part is string => Boolean(part));
 }
 
@@ -229,8 +253,9 @@ export function buildInvoiceDocument(
     seller: {
       name: seller.name,
       logoUrl: input.logoUrl ?? null,
-      headerLines: sellerHeaderLines(seller),
-      legalIdentityLines: sellerLegalLines(seller),
+      addressLines: sellerAddressLines(seller),
+      footerIdentityLines: sellerFooterIdentityLines(seller),
+      footerLegalLines: sellerFooterLegalLines(seller),
       vatExempt: seller.vatExempt,
       paymentTermDays: seller.paymentTermDays,
     },
@@ -270,9 +295,6 @@ export function buildInvoiceDocument(
         String(seller.latePaymentPenaltyRate).replace(".", ","),
       ),
       recoveryIndemnity: locale.legalMentions.recoveryIndemnity,
-      bankDetails: seller.iban
-        ? `Coordonnées bancaires : ${seller.iban}${seller.bic ? ` — BIC ${seller.bic}` : ""}`
-        : null,
     },
   };
 }

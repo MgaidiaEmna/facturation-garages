@@ -86,49 +86,18 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
   const { localeCode, seller, client, dates, lines, totals, legalMentions } = document;
   const locale = getLocale(localeCode);
   const colonnes = seller.vatExempt ? 5 : 6;
+  // Une fiche vide ne doit pas produire deux colonnes vides : on le dit.
+  const identiteComplete =
+    seller.footerIdentityLines.length > 0 || seller.footerLegalLines.length > 0;
 
   return (
     /* La feuille : hauteur A4 minimale et colonne flex, pour que le pied de
        page se colle au bas comme dans le PDF. `min-h` et non `h` : une facture
        longue s'étire au lieu de déborder. */
     <article className="mx-auto flex w-full max-w-[210mm] flex-col bg-white p-8 text-[13px] leading-relaxed text-zinc-900 shadow-sm ring-1 ring-zinc-200 sm:min-h-[297mm] sm:p-10">
-      {/* ---------- En-tête : vendeur ---------- */}
+      {/* ---------- En-tête : l'objet à gauche, l'émetteur à droite ---------- */}
       <header className="flex flex-wrap items-start justify-between gap-6 border-b border-zinc-300 pb-6">
-        <div className="space-y-1">
-          {/* Le logo remplace le nom en tête quand il y en a un — sinon le nom
-              tient le haut de la facture, comme avant la phase 9.
-              `<img>` et non un composant d'image optimisée : l'URL est signée
-              et expire, elle n'a rien à faire dans un cache partagé. */}
-          {seller.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={seller.logoUrl}
-              alt={seller.name}
-              className="mb-2 max-h-16 w-auto max-w-[220px] object-contain"
-            />
-          ) : null}
-          <p className="text-lg font-semibold text-zinc-900">{seller.name}</p>
-
-          {/* L'adresse du siège, et rien d'autre : les mentions légales
-              d'identité sont rassemblées en pied de facture. Elles n'ont pas
-              disparu — voir le bloc « mentions » plus bas. */}
-          {seller.headerLines.length === 0 ? (
-            <p className="text-[12px] text-zinc-400">
-              Adresse du siège non renseignée — l&apos;administrateur la complète sur
-              votre fiche.
-            </p>
-          ) : (
-            <div className="space-y-0.5 text-[12px] text-zinc-600">
-              {seller.headerLines.map((ligne) => (
-                <p key={ligne} className="whitespace-pre-line">
-                  {ligne}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="text-right">
+        <div>
           <p className="text-2xl font-semibold tracking-tight text-zinc-900">FACTURE</p>
           {/* Une facture émise ne porte aucune mention d'état : c'est le
               document tel qu'il part chez le client. Seuls le brouillon et
@@ -144,21 +113,7 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
             </p>
           ) : null}
           <dl className="mt-3 space-y-0.5 text-[12px] text-zinc-600">
-            <div className="flex justify-end gap-2">
-              <dt>Date d&apos;émission :</dt>
-              <dd className="font-medium text-zinc-900">
-                {dates.issue ? formatDate(dates.issue, localeCode) : "—"}
-              </dd>
-            </div>
-            {dates.service ? (
-              <div className="flex justify-end gap-2">
-                <dt>Date de prestation :</dt>
-                <dd className="font-medium text-zinc-900">
-                  {formatDate(dates.service, localeCode)}
-                </dd>
-              </div>
-            ) : null}
-            <div className="flex justify-end gap-2">
+            <div className="flex gap-2">
               <dt>Numéro :</dt>
               {document.number ? (
                 <dd className="font-medium tabular-nums text-zinc-900">
@@ -168,13 +123,68 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
                 <dd className="text-zinc-400">attribué à l&apos;émission</dd>
               )}
             </div>
+            <div className="flex gap-2">
+              <dt>Date d&apos;émission :</dt>
+              <dd className="font-medium text-zinc-900">
+                {dates.issue ? formatDate(dates.issue, localeCode) : "—"}
+              </dd>
+            </div>
+            {dates.service ? (
+              <div className="flex gap-2">
+                <dt>Date de prestation :</dt>
+                <dd className="font-medium text-zinc-900">
+                  {formatDate(dates.service, localeCode)}
+                </dd>
+              </div>
+            ) : null}
           </dl>
+        </div>
+
+        {/* Le logo, en grand, et la dénomination dessous — rien d'autre à
+            droite. `<img>` et non un composant d'image optimisée : l'URL est
+            signée et expire, elle n'a rien à faire dans un cache partagé. */}
+        <div className="flex flex-col items-end text-right">
+          {seller.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={seller.logoUrl}
+              alt={seller.name}
+              className="mb-2 max-h-24 w-auto max-w-[260px] object-contain"
+            />
+          ) : null}
+          <p className="text-lg font-semibold text-zinc-900">{seller.name}</p>
         </div>
       </header>
 
-      {/* ---------- Client, sous l'en-tête, à gauche ---------- */}
-      <section className="mt-6">
-        <div className="w-full max-w-[58%] space-y-0.5">
+      {/* ---------- Vendeur et client, côte à côte ---------- */}
+      {/* Deux colonnes sur la même ligne : qui vend, à qui. Sur un écran
+          étroit elles se replient l'une sous l'autre — le PDF, lui, a
+          toujours la largeur d'une A4. */}
+      <section className="mt-6 grid gap-6 sm:grid-cols-2">
+        <div className="space-y-0.5">
+          <p className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
+            Vendeur
+          </p>
+          <p className="font-medium text-zinc-900">{seller.name}</p>
+
+          {/* L'adresse du siège, et rien d'autre : les mentions légales
+              d'identité sont rassemblées en pied de facture. Elles n'ont pas
+              disparu — voir le bloc « mentions » plus bas. */}
+          {seller.addressLines.length === 0 ? (
+            <p className="text-[12px] text-zinc-400">
+              Adresse du siège non renseignée — l&apos;administrateur la complète sur
+              votre fiche.
+            </p>
+          ) : (
+            seller.addressLines.map((ligne) => (
+              <p key={ligne} className="whitespace-pre-line text-zinc-700">
+                {ligne}
+              </p>
+            ))
+          )}
+        </div>
+
+        <div className="space-y-0.5">
           <p className="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
             Facturé à
           </p>
@@ -305,15 +315,28 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
           l'espace restant et pousse le pied au bas de la feuille. Le grand
           blanc entre le tableau et les mentions est voulu — c'est ce que
           fait le PDF, et les deux doivent se ressembler. */}
-      <footer className="mt-auto space-y-3 border-t border-zinc-300 pt-8 text-[11px] leading-relaxed text-zinc-600">
+      <footer className="mt-auto border-t border-zinc-300 pt-8 text-[11px] leading-relaxed text-zinc-600">
         {/* Identité légale du vendeur : descendue de l'en-tête, jamais retirée.
             Le Code de commerce l'exige sur la facture, pas en haut de la
-            facture. Sur une ligne, séparée par des points médians : c'est un
-            pied de page, il doit tenir en peu de hauteur. */}
-        {seller.legalIdentityLines.length > 0 ? (
-          <p className="font-medium text-zinc-800">
-            {seller.name} — {seller.legalIdentityLines.join(" · ")}
-          </p>
+            facture. Deux colonnes — identification à gauche, forme sociale et
+            coordonnées bancaires à droite — parce qu'une seule ligne à points
+            médians devenait illisible. La LISTE, elle, n'a pas changé. */}
+        {identiteComplete ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="font-medium text-zinc-800">{seller.name}</p>
+              {seller.footerIdentityLines.map((ligne) => (
+                <p key={ligne} className="whitespace-pre-line">
+                  {ligne}
+                </p>
+              ))}
+            </div>
+            <div>
+              {seller.footerLegalLines.map((ligne) => (
+                <p key={ligne}>{ligne}</p>
+              ))}
+            </div>
+          </div>
         ) : (
           <p className="text-zinc-400">
             Mentions légales du vendeur incomplètes — l&apos;administrateur les
@@ -321,14 +344,16 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
           </p>
         )}
 
-        <div className="space-y-1.5">
+        {/* Les mentions de règlement restent en PLEINE LARGEUR : ce sont des
+            phrases, pas des identifiants, et les couper en deux colonnes les
+            rendrait pénibles à lire. */}
+        <div className="mt-3 space-y-1.5 border-t border-zinc-200 pt-3">
           {legalMentions.vatExempt ? (
             <p className="font-medium text-zinc-800">{legalMentions.vatExempt}</p>
           ) : null}
           <p>{legalMentions.paymentTerms}</p>
           <p>{legalMentions.latePayment}</p>
           <p>{legalMentions.recoveryIndemnity}</p>
-          {legalMentions.bankDetails ? <p>{legalMentions.bankDetails}</p> : null}
         </div>
       </footer>
     </article>

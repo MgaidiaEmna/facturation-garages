@@ -396,17 +396,26 @@ rendu**.
 
 | Zone | Contenu |
 |---|---|
-| En-tête, à gauche | logo, dénomination, **adresse du siège seulement** (`seller.headerLines`) |
-| En-tête, à droite | « FACTURE », numéro, date d'émission, date de prestation |
-| Sous l'en-tête, à gauche | bloc client « Facturé à » |
-| Corps | tableau des prestations, puis totaux et ventilation de TVA |
-| **Pied** | `seller.legalIdentityLines` — forme juridique + capital, SIRET, RCS + greffe, n° de TVA, contact — puis règlement/échéance, pénalités, indemnité 40 €, IBAN/BIC, et l'art. 293 B en franchise |
+| En-tête, à gauche | « FACTURE », numéro, date d'émission, date de prestation |
+| En-tête, à droite | le **logo en grand**, dénomination juste dessous — rien d'autre |
+| Sous l'en-tête, **2 colonnes** | « VENDEUR » (dénomination + `seller.addressLines`) à gauche, « Facturé à » (nom, adresse, n° TVA/SIRET) à droite |
+| Corps | tableau des prestations, puis totaux et ventilation de TVA, à droite |
+| **Pied**, colonne gauche | dénomination + `seller.footerIdentityLines` — adresse, SIRET, n° de TVA, contact |
+| **Pied**, colonne droite | `seller.footerLegalLines` — forme juridique + capital, RCS + greffe, IBAN, BIC |
+| **Pied**, pleine largeur | règlement/échéance, pénalités, indemnité 40 €, et l'art. 293 B en franchise |
 
-Les mentions d'identité sont **descendues, jamais retirées** : le Code de
-commerce les exige sur la facture, pas en haut de la facture. `verify:pdf`
-vérifie leur présence ET leur position — dans le PDF comme à l'écran — parce
-que la seule présence laisserait passer un retour silencieux à l'ancien
-en-tête.
+Les mentions d'identité sont **descendues et redistribuées, jamais retirées** :
+le Code de commerce les exige sur la facture, pas en haut de la facture. Le
+seul interdit, en refondant la mise en page, est d'en perdre une —
+SIREN/SIRET, TVA, forme juridique, capital, RCS, IBAN/BIC restent tous là,
+ailleurs. `verify:pdf` vérifie leur présence ET leur position — dans le PDF
+comme à l'écran — parce que la seule présence laisserait passer un retour
+silencieux à l'ancien en-tête, ou une colonne du pied vidée au profit de
+l'autre.
+
+Les coordonnées bancaires ne sont plus une mention de règlement mais une
+mention d'identité (colonne droite du pied) : elles disent qui est payé autant
+que par où. `legalMentions` ne porte donc plus `bankDetails`.
 
 **`buildInvoiceDocument()` est la parade à la divergence.** Ordre des lignes d'identité du
 vendeur, texte des mentions légales, taux de pénalités substitué, calcul de l'échéance : tout
