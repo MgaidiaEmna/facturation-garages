@@ -158,9 +158,10 @@ async function creerFacture(jeton, client, lignes, { emettre = true } = {}) {
 }
 
 /** Télécharge le PDF avec la session fournie. */
-async function telecharger(nav, id) {
+async function telecharger(nav, id, { impression = false } = {}) {
   const cookie = [...nav.cookies].map(([k, v]) => `${k}=${v}`).join("; ");
-  const r = await fetch(`${APP}/app/factures/${id}/pdf`, {
+  const requete = `${APP}/app/factures/${id}/pdf${impression ? "?impression=1" : ""}`;
+  const r = await fetch(requete, {
     headers: { cookie },
     redirect: "manual",
   });
@@ -273,7 +274,28 @@ async function main() {
     montants.filter((m) => !page.body.includes(m)).join(", "));
 
   // -------------------------------------------------------------------------
-  section("4. Le PDF d'un brouillon");
+  section("4. Le bouton Imprimer sert le MÊME document");
+
+  // « Imprimer » ne doit pas produire une seconde mise en page : c'est le même
+  // PDF, servi `inline` pour que le lecteur du navigateur s'ouvre.
+  const impression = await telecharger(navA, id, { impression: true });
+  check("la variante d'impression répond", impression.status === 200,
+    `HTTP ${impression.status}`);
+  check("elle s'ouvre dans le lecteur plutôt que de se télécharger",
+    impression.disposition.startsWith("inline"), impression.disposition);
+  check("elle porte le même nom de fichier",
+    impression.disposition.includes(`Facture_${facture?.number}_Cafe_Leon_Fils.pdf`),
+    impression.disposition);
+  // Pas une comparaison octet pour octet : un PDF embarque sa date de création
+  // et un identifiant de document, différents à chaque rendu. Ce qui doit être
+  // identique, c'est le CONTENU — et c'est bien ce qu'on imprime.
+  check("c'est le même document, au caractère près",
+    texteDuPdf(impression.buffer) === pdf.texte,
+    `${texteDuPdf(impression.buffer).length} vs ${pdf.texte.length} caractères`);
+  check("il est A4 comme l'autre", estA4(impression.buffer));
+
+  // -------------------------------------------------------------------------
+  section("5. Le PDF d'un brouillon");
 
   const brouillon = await creerFacture(
     A.jeton,
@@ -294,7 +316,7 @@ async function main() {
     contientTexte(pdfBrouillon.texte, "attribué à l'émission"));
 
   // -------------------------------------------------------------------------
-  section("5. Franchise en base de TVA");
+  section("6. Franchise en base de TVA");
 
   const franchise = {
     nom: `Franchise ${RUN}`,
@@ -319,7 +341,7 @@ async function main() {
     `TVA en base : ${exoneree.facture?.vat_total}`);
 
   // -------------------------------------------------------------------------
-  section("6. Frontières du point d'entrée");
+  section("7. Frontières du point d'entrée");
 
   // Les layouts ne s'appliquent pas aux Route Handlers : c'est la route
   // elle-même qui doit refuser.
@@ -350,11 +372,14 @@ async function main() {
   check("une facture inconnue donne 404", inconnu.status === 404, `HTTP ${inconnu.status}`);
 
   // -------------------------------------------------------------------------
-  section("7. Les écrans proposent le PDF");
+  section("8. Les écrans proposent le PDF");
 
   check("la facture émise offre le téléchargement",
     page.body.includes(`/app/factures/${id}/pdf`) &&
       page.body.includes("Télécharger le PDF"));
+  check("elle offre aussi l'impression, à côté et sans remplacer",
+    page.body.includes(`/app/factures/${id}/pdf?impression=1`) &&
+      page.body.includes("Imprimer"));
 
   const editeur = await navA.get(`/app/factures/${brouillon.id}`);
   check("l'éditeur offre l'aperçu PDF",

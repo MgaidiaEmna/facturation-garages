@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Download, Lock } from "lucide-react";
+import { ArrowLeft, Download, Lock, Printer } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,8 +47,26 @@ export function IssuedInvoiceView({ invoice }: { invoice: IssuedInvoice }) {
             </span>
           </span>
 
-          {/* Un simple lien : le PDF est produit par un Route Handler, donc le
-              téléchargement fonctionne même si le JavaScript n'a pas chargé. */}
+          {/* Deux liens, aucun JavaScript : le PDF est produit par un Route
+              Handler, donc les deux actions fonctionnent même si le script n'a
+              pas chargé.
+
+              « Imprimer » sert EXACTEMENT le même document, mais `inline` : le
+              lecteur PDF du navigateur s'ouvre et l'impression part de là. On
+              ne réinvente pas une mise en page d'impression — il n'y aurait
+              plus un document de référence, mais deux à garder d'accord. */}
+          <Button asChild variant="outline">
+            <a
+              href={`/app/factures/${invoice.id}/pdf?impression=1`}
+              target="_blank"
+              rel="noreferrer"
+              title="Ouvre la facture dans un nouvel onglet, prête à imprimer."
+            >
+              <Printer aria-hidden />
+              Imprimer
+            </a>
+          </Button>
+
           <Button asChild>
             <a href={`/app/factures/${invoice.id}/pdf`}>
               <Download aria-hidden />

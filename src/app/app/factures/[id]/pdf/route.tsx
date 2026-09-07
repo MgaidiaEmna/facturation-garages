@@ -50,7 +50,7 @@ const introuvable = () =>
   });
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: RouteContext<"/app/factures/[id]/pdf">,
 ) {
   const { id } = await context.params;
@@ -75,6 +75,13 @@ export async function GET(
   const buffer = await renderToBuffer(<InvoicePdf document={document} />);
   const nom = nomFichierFacture(document.number, document.client.name);
 
+  // `?impression=1` sert le MÊME document, mais à l'écran plutôt qu'au
+  // téléchargement : le lecteur PDF du navigateur s'ouvre, et l'impression
+  // part de là. C'est le bouton « Imprimer ». On ne réinvente pas une mise en
+  // page d'impression — il n'y aurait plus un document de référence, mais deux
+  // à garder d'accord.
+  const pourImpression = new URL(request.url).searchParams.get("impression") === "1";
+
   return new Response(new Uint8Array(buffer), {
     headers: {
       "content-type": "application/pdf",
@@ -82,7 +89,7 @@ export async function GET(
       // regarde : il s'ouvre dans le lecteur du navigateur.
       "content-disposition": contentDisposition(
         nom,
-        view.status === "draft" ? "inline" : "attachment",
+        pourImpression || view.status === "draft" ? "inline" : "attachment",
       ),
       "content-length": String(buffer.length),
       // Le document dépend de la session et peut changer à chaque

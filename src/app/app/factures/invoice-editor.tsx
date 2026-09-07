@@ -254,7 +254,12 @@ export function InvoiceEditor({
               enregistré. Le bouton le dit au lieu de disparaître. */}
           {invoiceId ? (
             <Button asChild variant="ghost">
-              <a href={`/app/factures/${invoiceId}/pdf`} target="_blank" rel="noreferrer">
+              <a
+                href={`/app/factures/${invoiceId}/pdf`}
+                target="_blank"
+                rel="noreferrer"
+                title="Ouvre le brouillon en PDF dans un nouvel onglet, prêt à imprimer."
+              >
                 <FileText aria-hidden />
                 Aperçu PDF
               </a>
