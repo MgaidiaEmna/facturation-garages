@@ -23,6 +23,7 @@ import {
   contientTexte,
   estA4,
   formatDePage,
+  positionsVerticales,
   texteDuPdf,
 } from "./lib/pdf-texte.mjs";
 
@@ -282,6 +283,23 @@ async function main() {
   // --- Le piège des espaces fines ---
   // `Intl` sépare les milliers par une espace fine insécable, absente de
   // WinAnsi. Si elle passait telle quelle, le montant sortirait troué.
+  // --- Le pied est ANCRÉ en bas de la feuille ---
+  // Une facture d'atelier tient sur trois lignes : sans ancrage, le bloc légal
+  // remonterait se coller au tableau et laisserait la moitié basse de la page
+  // vide. On éprouve donc sa POSITION, pas seulement sa présence.
+  const hauteur = formatDePage(pdf.buffer)?.hauteur ?? 842;
+  const yIndemnite = positionsVerticales(pdf.buffer, "Indemni");
+  check("le bloc de mentions n'est dessiné qu'une fois",
+    yIndemnite.length === 1, `${yIndemnite.length} occurrence(s)`);
+  check("il est ancré dans le bas de la page A4",
+    yIndemnite[0] > hauteur * 0.7,
+    `y = ${yIndemnite[0]?.toFixed(0)} sur ${hauteur.toFixed(0)} pt`);
+
+  const yTotal = positionsVerticales(pdf.buffer, "otal");
+  check("un grand blanc sépare les totaux du pied, et c'est voulu",
+    yIndemnite[0] - Math.max(...yTotal) > 150,
+    `totaux y = ${Math.max(...yTotal).toFixed(0)}, pied y = ${yIndemnite[0]?.toFixed(0)}`);
+
   check("aucune espace fine insécable n'a survécu dans le PDF",
     !pdf.texte.includes(" ") && !pdf.texte.includes(" "));
 

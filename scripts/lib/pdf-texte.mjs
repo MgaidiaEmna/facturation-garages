@@ -179,3 +179,59 @@ export function compacter(texte) {
 export function contientTexte(texteDuPdfExtrait, aiguille) {
   return compacter(texteDuPdfExtrait).includes(compacter(aiguille));
 }
+
+/**
+ * Position VERTICALE d'un texte dans le PDF, en points depuis le haut.
+ *
+ * Sert à éprouver la mise en page, pas seulement le contenu : un pied de page
+ * censé être ancré en bas de la feuille doit pouvoir se PROUVER en bas, sinon
+ * il redeviendra flottant à la première refonte sans que rien ne le signale.
+ *
+ * Le flux de contenu de `@react-pdf/renderer` commence par `1 0 0 -1 0 H cm` :
+ * l'axe vertical est retourné, donc les translations qui suivent se lisent
+ * depuis le haut. On suit la pile `q`/`Q` pour accumuler les `1 0 0 1 x y cm`
+ * et on relève la position au moment où le texte est dessiné.
+ *
+ * Le texte cherché doit être ASCII : il est comparé à sa forme hexadécimale,
+ * telle que react-pdf l'écrit dans les tableaux `TJ`.
+ */
+export function positionsVerticales(buffer, texte) {
+  const aiguille = Buffer.from(texte, "latin1").toString("hex");
+  const resultats = [];
+  let position = 0;
+
+  while (true) {
+    const debut = buffer.indexOf("stream", position);
+    if (debut < 0) break;
+    let contenu = debut + "stream".length;
+    if (buffer[contenu] === 0x0d) contenu++;
+    if (buffer[contenu] === 0x0a) contenu++;
+    const fin = buffer.indexOf("endstream", contenu);
+    if (fin < 0) break;
+    position = fin + "endstream".length;
+
+    let flux;
+    try {
+      flux = inflateSync(buffer.subarray(contenu, fin)).toString("latin1");
+    } catch {
+      continue;
+    }
+    if (!flux.includes(" cm")) continue;
+
+    let y = 0;
+    const pile = [];
+    for (const ligne of flux.split("\n")) {
+      const t = ligne.trim();
+      if (t === "q") {
+        pile.push(y);
+      } else if (t === "Q") {
+        y = pile.pop() ?? y;
+      } else {
+        const cm = t.match(/^1 0 0 1 (-?[\d.]+) (-?[\d.]+) cm$/);
+        if (cm) y += Number(cm[2]);
+        else if (t.includes(aiguille)) resultats.push(y);
+      }
+    }
+  }
+  return resultats;
+}

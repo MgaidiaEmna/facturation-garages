@@ -88,7 +88,10 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
   const colonnes = seller.vatExempt ? 5 : 6;
 
   return (
-    <article className="mx-auto w-full max-w-[210mm] bg-white p-8 text-[13px] leading-relaxed text-zinc-900 shadow-sm ring-1 ring-zinc-200 sm:p-10">
+    /* La feuille : hauteur A4 minimale et colonne flex, pour que le pied de
+       page se colle au bas comme dans le PDF. `min-h` et non `h` : une facture
+       longue s'étire au lieu de déborder. */
+    <article className="mx-auto flex w-full max-w-[210mm] flex-col bg-white p-8 text-[13px] leading-relaxed text-zinc-900 shadow-sm ring-1 ring-zinc-200 sm:min-h-[297mm] sm:p-10">
       {/* ---------- En-tête : vendeur ---------- */}
       <header className="flex flex-wrap items-start justify-between gap-6 border-b border-zinc-300 pb-6">
         <div className="space-y-1">
@@ -298,7 +301,11 @@ function InvoiceDocumentView({ document }: { document: InvoiceDocument }) {
       ) : null}
 
       {/* ---------- Mentions légales ---------- */}
-      <footer className="mt-8 space-y-3 border-t border-zinc-300 pt-4 text-[11px] leading-relaxed text-zinc-600">
+      {/* `mt-auto` : dans une colonne flex, la marge automatique absorbe
+          l'espace restant et pousse le pied au bas de la feuille. Le grand
+          blanc entre le tableau et les mentions est voulu — c'est ce que
+          fait le PDF, et les deux doivent se ressembler. */}
+      <footer className="mt-auto space-y-3 border-t border-zinc-300 pt-8 text-[11px] leading-relaxed text-zinc-600">
         {/* Identité légale du vendeur : descendue de l'en-tête, jamais retirée.
             Le Code de commerce l'exige sur la facture, pas en haut de la
             facture. Sur une ligne, séparée par des points médians : c'est un

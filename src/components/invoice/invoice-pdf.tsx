@@ -57,7 +57,19 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica",
     color: ZINC[900],
     lineHeight: 1.5,
+    flexDirection: "column",
   },
+
+  /**
+   * Le corps s'étire pour occuper la hauteur disponible : c'est lui qui
+   * repousse le pied au bas de la feuille quand la facture est courte.
+   *
+   * Un `flexGrow` plutôt qu'un `position: "absolute"` : un bloc absolu sort du
+   * flux, donc le contenu d'une facture longue lui passerait DESSOUS et le
+   * chevaucherait. Et un pied `fixed` se répéterait sur chaque page, ce qui
+   * n'est pas ce qu'on veut d'un bloc de mentions.
+   */
+  corps: { flexGrow: 1 },
 
   entete: { flexDirection: "row", justifyContent: "space-between", gap: 24 },
   enteteGauche: { flexGrow: 1, flexShrink: 1, maxWidth: "58%" },
@@ -217,173 +229,179 @@ export function InvoicePdf({ document }: { document: InvoiceDocument }) {
           </Text>
         ) : null}
 
-        {/* ---------- En-tête ---------- */}
-        <View style={[styles.entete, styles.filetEntete]}>
-          <View style={styles.enteteGauche}>
-            {/* `src` est une `data:` URI : les octets ont été téléchargés par
-                le serveur depuis le bucket privé. Passer l'URL signée ferait
-                dépendre le rendu d'un aller-retour réseau au moment de
-                l'impression — et d'une signature qui peut avoir expiré. */}
-            {seller.logoUrl ? (
-              // `Image` vient de @react-pdf/renderer, pas du DOM : il n'a pas
-              // d'attribut `alt`, et un PDF n'a pas de texte alternatif. La
-              // dénomination du vendeur figure juste en dessous, en texte.
-              // eslint-disable-next-line jsx-a11y/alt-text
-              <Image style={styles.logo} src={seller.logoUrl} />
-            ) : null}
-            <Text style={styles.vendeurNom}>{pdfSafe(seller.name)}</Text>
-            {/* L'adresse du siège, et rien d'autre : les mentions légales
-                d'identité sont rassemblées en pied de page. */}
-            {seller.headerLines.length === 0 ? (
-              <Text style={styles.vendeurAbsent}>Adresse du siège non renseignée.</Text>
-            ) : (
-              seller.headerLines.map((ligne) => (
-                <Text key={ligne} style={styles.vendeurLigne}>
-                  {pdfSafe(ligne)}
+        <View style={styles.corps}>
+          {/* ---------- En-tête ---------- */}
+          <View style={[styles.entete, styles.filetEntete]}>
+            <View style={styles.enteteGauche}>
+              {/* `src` est une `data:` URI : les octets ont été téléchargés par
+                  le serveur depuis le bucket privé. Passer l'URL signée ferait
+                  dépendre le rendu d'un aller-retour réseau au moment de
+                  l'impression — et d'une signature qui peut avoir expiré. */}
+              {seller.logoUrl ? (
+                // `Image` vient de @react-pdf/renderer, pas du DOM : il n'a pas
+                // d'attribut `alt`, et un PDF n'a pas de texte alternatif. La
+                // dénomination du vendeur figure juste en dessous, en texte.
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image style={styles.logo} src={seller.logoUrl} />
+              ) : null}
+              <Text style={styles.vendeurNom}>{pdfSafe(seller.name)}</Text>
+              {/* L'adresse du siège, et rien d'autre : les mentions légales
+                  d'identité sont rassemblées en pied de page. */}
+              {seller.headerLines.length === 0 ? (
+                <Text style={styles.vendeurAbsent}>Adresse du siège non renseignée.</Text>
+              ) : (
+                seller.headerLines.map((ligne) => (
+                  <Text key={ligne} style={styles.vendeurLigne}>
+                    {pdfSafe(ligne)}
+                  </Text>
+                ))
+              )}
+            </View>
+
+            <View style={styles.enteteDroite}>
+              <Text style={styles.titre}>FACTURE</Text>
+              {brouillon ? <Text style={styles.etat}>BROUILLON — NON EMIS</Text> : null}
+              {document.status === "cancelled" ? (
+                <Text style={styles.etat}>ANNULEE</Text>
+              ) : null}
+
+              <View style={styles.meta}>
+                <Text>
+                  Date d&apos;émission :{" "}
+                  <Text style={styles.metaValeur}>
+                    {dates.issue ? date(dates.issue) : "—"}
+                  </Text>
                 </Text>
+                {dates.service ? (
+                  <Text>
+                    Date de prestation :{" "}
+                    <Text style={styles.metaValeur}>{date(dates.service)}</Text>
+                  </Text>
+                ) : null}
+                <Text>
+                  Numéro :{" "}
+                  {document.number ? (
+                    <Text style={styles.metaValeur}>{document.number}</Text>
+                  ) : (
+                    <Text style={{ color: ZINC[400] }}>attribué à l&apos;émission</Text>
+                  )}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* ---------- Client ---------- */}
+          <View style={styles.client}>
+            <View style={styles.clientBloc}>
+              <Text style={styles.surtitre}>FACTURÉ À</Text>
+              <Text style={styles.clientNom}>
+                {client.name ? pdfSafe(client.name) : "—"}
+              </Text>
+              {client.address ? (
+                <Text style={styles.clientLigne}>{pdfSafe(client.address)}</Text>
+              ) : null}
+              {client.phone ? (
+                <Text style={styles.clientLigne}>{pdfSafe(client.phone)}</Text>
+              ) : null}
+              {client.vatNumber ? (
+                <Text style={styles.clientLigne}>
+                  N° TVA / SIRET : {pdfSafe(client.vatNumber)}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+
+          {/* ---------- Prestations ---------- */}
+          <View style={styles.table}>
+            <View style={styles.tableEntete} fixed>
+              <Text style={styles.colDesignation}>DÉSIGNATION</Text>
+              <Text style={styles.colQte}>QTÉ</Text>
+              <Text style={styles.colUnite}>UNITÉ</Text>
+              <Text style={styles.colPu}>P.U. HT</Text>
+              {seller.vatExempt ? null : <Text style={styles.colTva}>TVA</Text>}
+              <Text style={styles.colTotal}>TOTAL HT</Text>
+            </View>
+
+            {lines.length === 0 ? (
+              <Text style={styles.tableVide}>Aucune prestation.</Text>
+            ) : (
+              lines.map((line) => (
+                <View key={line.key} style={styles.ligne} wrap={false}>
+                  <Text style={[styles.colDesignation, styles.celluleForte]}>
+                    {pdfSafe(line.description)}
+                  </Text>
+                  <Text style={[styles.colQte, styles.cellule]}>{line.quantity}</Text>
+                  <Text style={[styles.colUnite, styles.cellule]}>
+                    {pdfSafe(line.unit)}
+                  </Text>
+                  <Text style={[styles.colPu, styles.cellule]}>
+                    {montant(line.unitPriceHt)}
+                  </Text>
+                  {seller.vatExempt ? null : (
+                    <Text style={[styles.colTva, styles.cellule]}>{taux(line.vatRate)}</Text>
+                  )}
+                  <Text style={[styles.colTotal, styles.celluleForte]}>
+                    {montant(line.lineTotalHt)}
+                  </Text>
+                </View>
               ))
             )}
           </View>
 
-          <View style={styles.enteteDroite}>
-            <Text style={styles.titre}>FACTURE</Text>
-            {brouillon ? <Text style={styles.etat}>BROUILLON — NON EMIS</Text> : null}
-            {document.status === "cancelled" ? (
-              <Text style={styles.etat}>ANNULEE</Text>
-            ) : null}
-
-            <View style={styles.meta}>
-              <Text>
-                Date d&apos;émission :{" "}
-                <Text style={styles.metaValeur}>
-                  {dates.issue ? date(dates.issue) : "—"}
-                </Text>
-              </Text>
-              {dates.service ? (
-                <Text>
-                  Date de prestation :{" "}
-                  <Text style={styles.metaValeur}>{date(dates.service)}</Text>
-                </Text>
-              ) : null}
-              <Text>
-                Numéro :{" "}
-                {document.number ? (
-                  <Text style={styles.metaValeur}>{document.number}</Text>
-                ) : (
-                  <Text style={{ color: ZINC[400] }}>attribué à l&apos;émission</Text>
-                )}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ---------- Client ---------- */}
-        <View style={styles.client}>
-          <View style={styles.clientBloc}>
-            <Text style={styles.surtitre}>FACTURÉ À</Text>
-            <Text style={styles.clientNom}>
-              {client.name ? pdfSafe(client.name) : "—"}
-            </Text>
-            {client.address ? (
-              <Text style={styles.clientLigne}>{pdfSafe(client.address)}</Text>
-            ) : null}
-            {client.phone ? (
-              <Text style={styles.clientLigne}>{pdfSafe(client.phone)}</Text>
-            ) : null}
-            {client.vatNumber ? (
-              <Text style={styles.clientLigne}>
-                N° TVA / SIRET : {pdfSafe(client.vatNumber)}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-
-        {/* ---------- Prestations ---------- */}
-        <View style={styles.table}>
-          <View style={styles.tableEntete} fixed>
-            <Text style={styles.colDesignation}>DÉSIGNATION</Text>
-            <Text style={styles.colQte}>QTÉ</Text>
-            <Text style={styles.colUnite}>UNITÉ</Text>
-            <Text style={styles.colPu}>P.U. HT</Text>
-            {seller.vatExempt ? null : <Text style={styles.colTva}>TVA</Text>}
-            <Text style={styles.colTotal}>TOTAL HT</Text>
-          </View>
-
-          {lines.length === 0 ? (
-            <Text style={styles.tableVide}>Aucune prestation.</Text>
-          ) : (
-            lines.map((line) => (
-              <View key={line.key} style={styles.ligne} wrap={false}>
-                <Text style={[styles.colDesignation, styles.celluleForte]}>
-                  {pdfSafe(line.description)}
-                </Text>
-                <Text style={[styles.colQte, styles.cellule]}>{line.quantity}</Text>
-                <Text style={[styles.colUnite, styles.cellule]}>
-                  {pdfSafe(line.unit)}
-                </Text>
-                <Text style={[styles.colPu, styles.cellule]}>
-                  {montant(line.unitPriceHt)}
-                </Text>
-                {seller.vatExempt ? null : (
-                  <Text style={[styles.colTva, styles.cellule]}>{taux(line.vatRate)}</Text>
-                )}
-                <Text style={[styles.colTotal, styles.celluleForte]}>
-                  {montant(line.lineTotalHt)}
-                </Text>
-              </View>
-            ))
-          )}
-        </View>
-
-        {/* ---------- Totaux ---------- */}
-        <View style={styles.totaux} wrap={false}>
-          <View style={styles.totauxBloc}>
-            <View style={styles.totalRang}>
-              <Text style={styles.totalLibelle}>Total HT</Text>
-              <Text style={styles.totalValeur}>{montant(totals.subtotalHt)}</Text>
-            </View>
-
-            {seller.vatExempt ? null : (
-              <>
-                {totals.breakdown.map((bucket) => (
-                  <View key={bucket.rate} style={styles.totalRang}>
-                    <Text style={styles.totalLibelle}>
-                      TVA {taux(bucket.rate)} sur {montant(bucket.baseHt)}
-                    </Text>
-                    <Text style={styles.totalValeur}>{montant(bucket.vatAmount)}</Text>
-                  </View>
-                ))}
-                <View style={styles.totalRang}>
-                  <Text style={styles.totalLibelle}>Total TVA</Text>
-                  <Text style={styles.totalValeur}>{montant(totals.vatTotal)}</Text>
-                </View>
-              </>
-            )}
-
-            {/* Faux en France : la colonne existe pour le multi-locale. */}
-            {locale.hasStampDuty ? (
+          {/* ---------- Totaux ---------- */}
+          <View style={styles.totaux} wrap={false}>
+            <View style={styles.totauxBloc}>
               <View style={styles.totalRang}>
-                <Text style={styles.totalLibelle}>Timbre fiscal</Text>
-                <Text style={styles.totalValeur}>{montant(totals.stampDuty)}</Text>
+                <Text style={styles.totalLibelle}>Total HT</Text>
+                <Text style={styles.totalValeur}>{montant(totals.subtotalHt)}</Text>
               </View>
-            ) : null}
 
-            <View style={styles.totalTtc}>
-              <Text>Total TTC</Text>
-              <Text>{montant(totals.totalTtc)}</Text>
+              {seller.vatExempt ? null : (
+                <>
+                  {totals.breakdown.map((bucket) => (
+                    <View key={bucket.rate} style={styles.totalRang}>
+                      <Text style={styles.totalLibelle}>
+                        TVA {taux(bucket.rate)} sur {montant(bucket.baseHt)}
+                      </Text>
+                      <Text style={styles.totalValeur}>{montant(bucket.vatAmount)}</Text>
+                    </View>
+                  ))}
+                  <View style={styles.totalRang}>
+                    <Text style={styles.totalLibelle}>Total TVA</Text>
+                    <Text style={styles.totalValeur}>{montant(totals.vatTotal)}</Text>
+                  </View>
+                </>
+              )}
+
+              {/* Faux en France : la colonne existe pour le multi-locale. */}
+              {locale.hasStampDuty ? (
+                <View style={styles.totalRang}>
+                  <Text style={styles.totalLibelle}>Timbre fiscal</Text>
+                  <Text style={styles.totalValeur}>{montant(totals.stampDuty)}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.totalTtc}>
+                <Text>Total TTC</Text>
+                <Text>{montant(totals.totalTtc)}</Text>
+              </View>
             </View>
           </View>
+
+          {document.notes ? (
+            <View style={styles.note} wrap={false}>
+              <Text style={styles.surtitre}>NOTE</Text>
+              <Text style={styles.noteTexte}>{pdfSafe(document.notes)}</Text>
+            </View>
+          ) : null}
         </View>
 
-        {document.notes ? (
-          <View style={styles.note} wrap={false}>
-            <Text style={styles.surtitre}>NOTE</Text>
-            <Text style={styles.noteTexte}>{pdfSafe(document.notes)}</Text>
-          </View>
-        ) : null}
-
-        {/* ---------- Mentions légales obligatoires ---------- */}
-        <View style={styles.mentions}>
+        {/* ---------- Mentions légales obligatoires ----------
+            `wrap={false}` : mesuré sur une facture de 45 lignes, le bloc se
+            coupait en deux — la dénomination et le SIRET en bas d'une page, le
+            reste des mentions en haut de la suivante. Un bloc légal qui se
+            scinde se lit mal et donne l'impression d'un document tronqué. */}
+        <View style={styles.mentions} wrap={false}>
           {/* Identité légale du vendeur : descendue de l'en-tête, jamais
               retirée. Le Code de commerce l'exige sur la facture, pas en haut
               de la facture. */}
