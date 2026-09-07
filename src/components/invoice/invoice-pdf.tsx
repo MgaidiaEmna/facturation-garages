@@ -33,6 +33,26 @@ import { invoiceTheme as C } from "@/lib/invoice/theme";
  * distincts et ne se mélangent pas — voir `lib/invoice/theme.ts`.
  *
  * ---------------------------------------------------------------------------
+ * LE PIÈGE DU `lineHeight` HÉRITÉ
+ * ---------------------------------------------------------------------------
+ * `@react-pdf/renderer` résout un `lineHeight` sans unité UNE SEULE FOIS,
+ * contre la taille de police en vigueur LÀ OÙ IL EST DÉCLARÉ, puis hérite la
+ * valeur absolue obtenue. Déclaré sur la `Page` (9,5 pt × 1,4), il descend
+ * donc en 13,3 pt FIXES sur tous les enfants — y compris sur un titre à
+ * 27 pt, dont la boîte de ligne se retrouve trois fois trop courte tandis que
+ * sa ligne de base reste posée avec son ascendante réelle. Le bloc suivant
+ * remonte alors DANS le titre.
+ *
+ * CSS ne se comporte pas ainsi : un `line-height` sans unité y est un
+ * multiplicateur, réévalué par élément. L'aperçu à l'écran était donc juste
+ * pendant que le PDF se chevauchait — un cas d'école de divergence entre les
+ * deux rendus, invisible tant qu'on ne mesure pas la géométrie.
+ *
+ * RÈGLE : tout texte dont la taille s'écarte du corps de la page porte son
+ * PROPRE `lineHeight`, déclaré à côté de son `fontSize`. `verify:pdf` mesure
+ * l'écart entre le titre et le numéro pour que ça ne puisse pas revenir.
+ *
+ * ---------------------------------------------------------------------------
  * LE PIÈGE DES ESPACES FINES
  * ---------------------------------------------------------------------------
  * `Intl.NumberFormat('fr-FR')` sépare les milliers par une ESPACE FINE
@@ -101,13 +121,31 @@ const styles = StyleSheet.create({
   enteteDroite: { flexShrink: 0, maxWidth: "40%", alignItems: "flex-end" },
 
   logo: { maxHeight: 68, maxWidth: 190, marginBottom: 5, objectFit: "contain" },
-  logoNom: { fontSize: 12, fontFamily: "Helvetica-Bold", textAlign: "right" },
+  logoNom: {
+    fontSize: 12,
+    lineHeight: 1.3,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "right",
+  },
 
-  /** Grand, en accent : à 30 pt le seuil « grand texte » est largement tenu. */
-  titre: { fontSize: 27, fontFamily: "Helvetica-Bold", color: C.accent },
+  /**
+   * Grand, en accent : à 27 pt le seuil « grand texte » est largement tenu.
+   *
+   * `lineHeight` EXPLICITE, et non hérité de la page : sans lui, la boîte de
+   * ligne vaudrait 13,3 pt (9,5 × 1,4) pour des glyphes de 27 pt, et le
+   * numéro viendrait se superposer au titre. Voir « LE PIÈGE DU lineHeight
+   * HÉRITÉ » en tête de fichier.
+   */
+  titre: { fontSize: 27, lineHeight: 1.2, fontFamily: "Helvetica-Bold", color: C.accent },
   /** Le numéro, juste sous le titre : c'est la référence qu'on cherche. */
-  numero: { fontSize: 13.5, fontFamily: "Helvetica-Bold", letterSpacing: 0.3 },
-  numeroAbsent: { fontSize: 10, color: C.discret },
+  numero: {
+    fontSize: 13.5,
+    lineHeight: 1.3,
+    marginTop: 2,
+    fontFamily: "Helvetica-Bold",
+    letterSpacing: 0.3,
+  },
+  numeroAbsent: { fontSize: 10, lineHeight: 1.4, marginTop: 2, color: C.discret },
   etat: {
     marginTop: 4,
     alignSelf: "flex-start",
@@ -136,7 +174,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.3,
     marginBottom: 4,
   },
-  partieNom: { fontFamily: "Helvetica-Bold", fontSize: 11.5 },
+  partieNom: { fontFamily: "Helvetica-Bold", fontSize: 11.5, lineHeight: 1.3 },
   partieLigne: { fontSize: 8.8, color: C.texte },
   partieAbsente: { fontSize: 8.5, color: C.discret },
 
@@ -185,6 +223,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.accent,
     color: C.surAccent,
     fontSize: 14,
+    lineHeight: 1.25,
     fontFamily: "Helvetica-Bold",
   },
 
@@ -229,6 +268,7 @@ const styles = StyleSheet.create({
     right: 0,
     textAlign: "center",
     fontSize: 46,
+    lineHeight: 1.2,
     fontFamily: "Helvetica-Bold",
     color: "#f7ece4",
     transform: "rotate(-24deg)",

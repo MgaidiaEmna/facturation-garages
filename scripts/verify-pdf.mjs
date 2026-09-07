@@ -334,6 +334,22 @@ async function main() {
     yIndemnite[0] - Math.max(...yTotal) > 150,
     `totaux y = ${Math.max(...yTotal).toFixed(0)}, pied y = ${yIndemnite[0]?.toFixed(0)}`);
 
+  // --- Le titre et le numéro ne se superposent pas ---
+  // `@react-pdf/renderer` résout un `lineHeight` sans unité contre la taille
+  // de police LÀ OÙ IL EST DÉCLARÉ, puis hérite la valeur absolue : posé sur
+  // la Page (9,5 pt), il donnait une boîte de ligne de 13,3 pt au titre de
+  // 27 pt, et le numéro venait se dessiner PAR-DESSUS. Invisible dans le
+  // texte extrait — il faut mesurer la géométrie. CSS, lui, réévalue le
+  // multiplicateur par élément : l'écran était juste pendant que le PDF ne
+  // l'était pas. On mesure donc l'écart des lignes de base.
+  const yTitre = positionsVerticales(pdf.buffer, "Facture");
+  const yNumero = positionsVerticales(pdf.buffer, facture?.number ?? "###");
+  const ecartTitre = (yNumero[0] ?? 0) - (yTitre[0] ?? 0);
+  check("le numéro est dessiné SOUS le titre, sans chevauchement",
+    yTitre.length > 0 && yNumero.length > 0 && ecartTitre >= 18,
+    `titre y = ${yTitre[0]?.toFixed(1)}, numéro y = ${yNumero[0]?.toFixed(1)}, ` +
+      `écart = ${ecartTitre.toFixed(1)} pt (minimum 18 pour un titre de 27 pt)`);
+
   check("aucune espace fine insécable n'a survécu dans le PDF",
     !pdf.texte.includes(" ") && !pdf.texte.includes(" "));
 
