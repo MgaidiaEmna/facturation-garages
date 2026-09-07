@@ -66,10 +66,15 @@ export function ClientPicker({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
+          // Le raccourci doit se voir : c'est lui qui évite de retaper les
+          // coordonnées d'un client connu. `text-primary` référence `--brand`,
+          // donc le marine en clair et son pendant lisible en sombre — écrire
+          // `text-brand-dark` en dur donnerait du bleu nuit sur fond nuit.
+          className="border-primary/40 font-semibold text-primary hover:border-primary/60 hover:bg-primary/5 hover:text-primary"
         >
           <BookUser aria-hidden />
           Depuis le carnet
-          <ChevronsUpDown aria-hidden className="opacity-50" />
+          <ChevronsUpDown aria-hidden className="opacity-60" />
         </Button>
       </PopoverTrigger>
 
@@ -141,7 +146,9 @@ export function ServicePicker({
           aria-expanded={open}
           aria-label="Choisir une prestation du catalogue"
           disabled={disabled}
-          className="text-muted-foreground"
+          // Était en `text-muted-foreground` : le raccourci se confondait avec
+          // une étiquette et personne ne pensait à cliquer dessus.
+          className="font-semibold text-primary hover:bg-primary/5 hover:text-primary"
         >
           <Wrench aria-hidden />
           Catalogue
