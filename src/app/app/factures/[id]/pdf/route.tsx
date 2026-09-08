@@ -1,6 +1,3 @@
-import { renderToBuffer } from "@react-pdf/renderer";
-
-import { InvoicePdf } from "@/components/invoice/invoice-pdf";
 import { requireGarage } from "@/lib/auth/session";
 import { buildInvoiceDocument } from "@/lib/invoice/document";
 import { contentDisposition, nomFichierFacture } from "@/lib/invoice/pdf-filename";
@@ -34,6 +31,26 @@ import { DEFAULT_LOCALE, type LocaleCode } from "@/lib/locale";
  * viennent de ce que `finalize_invoice()` a figé (`seller_snapshot`), jamais
  * d'un recalcul ni de la fiche actuelle du garage. Pour un brouillon, les
  * totaux sont indicatifs — et la page porte un filigrane qui le dit.
+ *
+ * ---------------------------------------------------------------------------
+ * LE MOTEUR PDF EST CHARGÉ À LA DEMANDE, PAS AU CHARGEMENT DU MODULE
+ * ---------------------------------------------------------------------------
+ * `@react-pdf/renderer` et `InvoicePdf` sont importés DANS le gestionnaire,
+ * jamais en tête de fichier. Ce n'est pas une coquetterie de performance :
+ * c'est ce qui rend le build possible sur une machine à mémoire contrainte.
+ *
+ * Pendant l'étape « Collecting page data », Next ÉVALUE le module de chaque
+ * route pour lire ses exports de configuration (`runtime`, `dynamic`) — donc
+ * exécute ses imports de tête. Or ce moteur tire fontkit, yoga-layout (WASM)
+ * et pdfkit : +23 Mo de tas et +49 Mo de RSS, mesurés au seul import. Quand
+ * le constructeur n'alloue qu'UN worker, tous les modules de routes
+ * s'accumulent dans le même processus, et il est tué sans message — le build
+ * s'arrête net sur « Collecting page data », sans la moindre ligne `Error:`.
+ *
+ * La route étant `force-dynamic`, rien n'est pré-rendu : ce module n'a aucune
+ * raison d'être chargé ailleurs qu'au moment de servir un PDF. Ne pas
+ * remonter ces deux imports en tête de fichier, même si l'outillage le
+ * propose.
  */
 
 // `@react-pdf/renderer` est une bibliothèque Node : pas d'exécution Edge.
@@ -95,6 +112,14 @@ export async function GET(
       : await documentEmis(view.issued, localeCode);
 
   if (!document) return introuvable();
+
+  // Chargement du moteur PDF — voir l'en-tête du fichier. Volontairement HORS
+  // du `try` : un import qui échoue est un défaut de déploiement, pas un logo
+  // illisible, et `renduImpossible()` dirait alors une contrevérité.
+  const [{ renderToBuffer }, { InvoicePdf }] = await Promise.all([
+    import("@react-pdf/renderer"),
+    import("@/components/invoice/invoice-pdf"),
+  ]);
 
   // Le seul endroit de cette route qui puisse lever pour une raison qui n'est
   // ni une absence ni un refus : la fabrication du document elle-même.
